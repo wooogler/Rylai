@@ -24,9 +24,12 @@ export default function ChatPage() {
   const [phoneInputText, setPhoneInputText] = useState("");
   const [isSimulatingTyping, setIsSimulatingTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -157,7 +160,7 @@ export default function ChatPage() {
                 </div>
 
                 {/* Messages */}
-                <div className="flex-1 overflow-y-auto px-4 py-4 bg-white scroll-smooth">
+                <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-4 py-4 bg-white scroll-smooth">
                   {messages.map((message, index) => {
                     const prevMessage = index > 0 ? messages[index - 1] : null;
                     const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
