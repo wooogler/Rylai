@@ -3,14 +3,21 @@
 import { useState, useRef, useEffect } from "react";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { scenarios, type Message } from "./scenarios";
-import MessageBubble from "./MessageBubble";
-import Avatar from "./Avatar";
-import TypingIndicator from "./TypingIndicator";
+import { useRouter, useParams } from "next/navigation";
+import { scenarios, type Message } from "../scenarios";
+import MessageBubble from "../MessageBubble";
+import Avatar from "../Avatar";
+import TypingIndicator from "../TypingIndicator";
+import Button from "@/components/Button";
 
 export default function ChatPage() {
-  const [currentScenario, setCurrentScenario] = useState(0);
-  const [messages, setMessages] = useState<Message[]>(scenarios[0].messages);
+  const router = useRouter();
+  const params = useParams();
+  const scenarioSlug = params.scenario as string;
+
+  const initialScenarioIndex = scenarios.findIndex(s => s.slug === scenarioSlug);
+  const [currentScenario, setCurrentScenario] = useState(initialScenarioIndex >= 0 ? initialScenarioIndex : 0);
+  const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].messages);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [replyIndex, setReplyIndex] = useState(0);
@@ -80,6 +87,7 @@ export default function ChatPage() {
   const handlePreviousScenario = () => {
     if (currentScenario > 0) {
       const prevScenario = currentScenario - 1;
+      router.push(`/chat/${scenarios[prevScenario].slug}`);
       setCurrentScenario(prevScenario);
       setMessages(scenarios[prevScenario].messages);
       setResponseText("");
@@ -93,6 +101,7 @@ export default function ChatPage() {
   const handleNextScenario = () => {
     if (currentScenario < scenarios.length - 1) {
       const nextScenario = currentScenario + 1;
+      router.push(`/chat/${scenarios[nextScenario].slug}`);
       setCurrentScenario(nextScenario);
       setMessages(scenarios[nextScenario].messages);
       setResponseText("");
@@ -123,8 +132,8 @@ export default function ChatPage() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Phone Simulation - Left */}
           <div className="flex flex-col items-center">
-            <div className="bg-gray-900 rounded-[3rem] p-4 shadow-2xl w-full max-w-[375px]">
-              <div className="bg-white rounded-[2.5rem] overflow-hidden h-[667px] flex flex-col">
+            <div className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-[375px] border-[12px] border-gray-900">
+              <div className="bg-white rounded-[1.75rem] overflow-hidden h-[667px] flex flex-col">
                 {/* Phone Status Bar */}
                 <div className="bg-white px-6 py-2 flex justify-between items-center text-xs">
                   <span>10:39</span>
@@ -136,7 +145,7 @@ export default function ChatPage() {
                 </div>
 
                 {/* Chat Header */}
-                <div className="bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+                <div className="bg-white border-b-[0.5px] border-gray-200 px-4 py-3 flex items-center justify-between">
                   <div className="flex items-center space-x-3">
                     <ChevronLeft className="w-6 h-6" />
                     <Avatar seed={scenario.handle} size={32} />
@@ -178,7 +187,7 @@ export default function ChatPage() {
                 </div>
 
                 {/* Phone Input (disabled for mockup) */}
-                <div className="bg-white border-t border-gray-200 px-4 py-3">
+                <div className="bg-white px-4 py-3">
                   <div className="bg-gray-100 rounded-full px-4 py-2 text-sm">
                     {phoneInputText ? (
                       <span className="text-gray-900">{phoneInputText}</span>
@@ -196,7 +205,7 @@ export default function ChatPage() {
           <div className="flex flex-col h-[715px]">
             {/* Response Section */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h2 className="text-lg font-semibold mb-4">Respond to this person:</h2>
+              <h2 className="text-lg font-semibold mb-4">Respond to {scenario.username}:</h2>
               <div className="flex gap-3">
                 <input
                   type="text"
@@ -211,13 +220,13 @@ export default function ChatPage() {
                   className="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                   placeholder="Type your response here..."
                 />
-                <button
+                <Button
                   onClick={handleSendResponse}
                   disabled={!responseText.trim()}
-                  className="px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  variant="secondary"
                 >
                   Send
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -233,14 +242,14 @@ export default function ChatPage() {
 
             {/* Navigation */}
             <div className="flex justify-between items-center">
-              <button
+              <Button
                 onClick={handlePreviousScenario}
                 disabled={currentScenario === 0}
-                className="flex items-center text-gray-600 hover:text-gray-900 disabled:text-gray-300 disabled:cursor-not-allowed"
+                variant="ghost"
               >
                 <ChevronLeft className="w-5 h-5" />
                 Back
-              </button>
+              </Button>
               <div className="flex items-center space-x-2">
                 {scenarios.map((_, index) => (
                   <div
@@ -253,13 +262,13 @@ export default function ChatPage() {
                   />
                 ))}
               </div>
-              <button
+              <Button
                 onClick={handleNextScenario}
                 disabled={currentScenario === scenarios.length - 1}
-                className="px-6 py-2 bg-gray-900 text-white rounded-lg font-medium hover:bg-gray-800 disabled:bg-gray-300 disabled:cursor-not-allowed"
+                variant="primary"
               >
                 Next
-              </button>
+              </Button>
             </div>
           </div>
         </div>

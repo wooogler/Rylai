@@ -7,6 +7,7 @@ export interface Message {
 
 export interface Scenario {
   id: number;
+  slug: string;
   username: string;
   handle: string;
   messages: Message[];
@@ -17,6 +18,7 @@ export interface Scenario {
 export const scenarios: Scenario[] = [
   {
     id: 1,
+    slug: "age-focused-compliments",
     username: "Mike Johnson",
     handle: "mike_j_24",
     messages: [
@@ -67,6 +69,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: 2,
+    slug: "secrecy-isolation",
     username: "Alex Cooper",
     handle: "alex_c_92",
     messages: [
@@ -117,6 +120,7 @@ export const scenarios: Scenario[] = [
   },
   {
     id: 3,
+    slug: "false-opportunity",
     username: "Chris Taylor",
     handle: "chris_t_official",
     messages: [

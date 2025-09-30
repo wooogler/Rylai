@@ -12,7 +12,7 @@ export default function Home() {
         </p>
         <div className="pt-4">
           <Link
-            href="/chat"
+            href="/chat/age-focused-compliments"
             className="inline-block px-8 py-4 bg-purple-600 text-white rounded-full font-semibold hover:bg-purple-700 transition-colors"
           >
             Start Chat Scenario
