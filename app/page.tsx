@@ -1,6 +1,25 @@
-import Link from "next/link";
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState(false);
+  const router = useRouter();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password === "vtcg") {
+      // Set auth cookie
+      document.cookie = "auth=vtcg-authenticated; path=/; max-age=86400"; // 24 hours
+      router.push("/chat/age-focused-compliments");
+    } else {
+      setError(true);
+      setPassword("");
+    }
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
       <main className="text-center space-y-8 p-8">
@@ -10,14 +29,31 @@ export default function Home() {
         <p className="text-xl text-gray-600 max-w-2xl">
           Educational intervention about online unwanted sexual solicitations
         </p>
-        <div className="pt-4">
-          <Link
-            href="/chat/age-focused-compliments"
-            className="inline-block px-8 py-4 bg-purple-600 text-white rounded-full font-semibold hover:bg-purple-700 transition-colors"
+        <form onSubmit={handleSubmit} className="pt-4 space-y-4">
+          <div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError(false);
+              }}
+              placeholder="Enter password"
+              className={`px-6 py-3 border rounded-full text-center focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                error ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
+              }`}
+            />
+            {error && (
+              <p className="text-red-500 text-sm mt-2">Incorrect password</p>
+            )}
+          </div>
+          <button
+            type="submit"
+            className="px-8 py-4 bg-purple-600 text-white rounded-full font-semibold hover:bg-purple-700 transition-colors"
           >
             Start Chat Scenario
-          </Link>
-        </div>
+          </button>
+        </form>
       </main>
     </div>
   );

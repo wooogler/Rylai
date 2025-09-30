@@ -198,7 +198,7 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-            <p className="mt-4 text-sm text-gray-600">Scenario {currentScenario + 1} of {scenarios.length}</p>
+            <p className="mt-4 text-lg font-bold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
           </div>
 
           {/* Response & Feedback - Right */}
