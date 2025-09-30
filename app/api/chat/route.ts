@@ -5,12 +5,17 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+interface ConversationMessage {
+  sender: 'user' | 'other';
+  text: string;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { conversationHistory, systemMessage, userMessage } = await req.json();
 
     // Build messages array from conversation history
-    const messages = conversationHistory.map((msg: any) => ({
+    const messages = conversationHistory.map((msg: ConversationMessage) => ({
       role: msg.sender === 'user' ? 'user' : 'assistant',
       content: msg.text,
     }));

@@ -19,6 +19,7 @@ export default function Avatar({ seed, size = 32, className = "" }: AvatarProps)
   }, [seed, size]);
 
   return (
+    // eslint-disable-next-line @next/next/no-img-element
     <img
       src={avatar}
       alt={`${seed} avatar`}

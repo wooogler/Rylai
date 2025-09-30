@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { scenarios, type Message } from "../scenarios";
