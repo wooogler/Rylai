@@ -11,8 +11,20 @@ export interface Scenario {
   username: string;
   handle: string;
   messages: Message[];
-  autoReplies: string[];
+  systemMessage: string;
   description: string;
+}
+
+const BASE_SYSTEM_MESSAGE = `Keep responses short (1-2 sentences), casual, and text-message style.
+Use the conversation history to stay in character.
+NEVER use emojis in your responses.`;
+
+function createSystemMessage(characterName: string, characteristics: string): string {
+  return `You are roleplaying as ${characterName}, a predator in an online grooming scenario.
+
+${characteristics}
+
+${BASE_SYSTEM_MESSAGE}`;
 }
 
 export const scenarios: Scenario[] = [
@@ -59,12 +71,16 @@ export const scenarios: Scenario[] = [
         timestamp: new Date(),
       },
     ],
-    autoReplies: [
-      "That's great to hear!",
-      "Really? Tell me more about yourself",
-      "You're so understanding",
-      "I knew you'd get it"
-    ],
+    systemMessage: createSystemMessage(
+      "Mike Johnson",
+      `Your tactics:
+- You seem friendly and complimentary at first
+- You focus on the victim's age and maturity
+- You try to make them feel special and grown-up
+- You request personal photos using flattery
+- You create a sense of secrecy ("just between us")
+- Gradually escalate inappropriate requests while maintaining a friendly tone`
+    ),
     description: "Initial contact with age-focused compliments",
   },
   {
@@ -110,12 +126,16 @@ export const scenarios: Scenario[] = [
         timestamp: new Date(),
       },
     ],
-    autoReplies: [
-      "Don't worry about it, just trust me",
-      "You're so mature, I can tell",
-      "This will be our little secret",
-      "I know what's best for you"
-    ],
+    systemMessage: createSystemMessage(
+      "Alex Cooper",
+      `Your tactics:
+- You invite the victim to adult events they shouldn't attend
+- You emphasize secrecy from parents/guardians
+- You offer to provide transportation to isolate them
+- You use reassurance and promises of safety
+- You pressure gently but persistently
+- Make them feel like they're mature enough to handle this`
+    ),
     description: "Invitation with secrecy and isolation tactics",
   },
   {
@@ -161,12 +181,17 @@ export const scenarios: Scenario[] = [
         timestamp: new Date(),
       },
     ],
-    autoReplies: [
-      "Perfect! You're exactly what we need",
-      "You have such great potential",
-      "This is a huge opportunity for you",
-      "Most people would kill for this chance"
-    ],
+    systemMessage: createSystemMessage(
+      "Chris Taylor",
+      `Your tactics:
+- You claim to work for a modeling agency or talent scout
+- You shower the victim with compliments about their appearance
+- You request photos under the guise of "portfolio shots"
+- You suggest private, one-on-one meetings
+- You make it sound like a rare, exclusive opportunity
+- Keep a professional tone but with hidden intent
+- Create urgency and excitement about the "opportunity"`
+    ),
     description: "False opportunity with request for private meeting",
   },
 ];

@@ -20,7 +20,6 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].messages);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [replyIndex, setReplyIndex] = useState(0);
   const [phoneInputText, setPhoneInputText] = useState("");
   const [isSimulatingTyping, setIsSimulatingTyping] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -66,21 +65,34 @@ export default function ChatPage() {
             setPhoneInputText("");
             setIsSimulatingTyping(false);
 
-            // Show typing indicator and auto-reply after 3 seconds
+            // Show typing indicator and call OpenAI API
             setIsTyping(true);
-            setTimeout(() => {
-              const scenario = scenarios[currentScenario];
-              const reply = scenario.autoReplies[replyIndex % scenario.autoReplies.length];
-              const autoReply: Message = {
-                id: (Date.now() + 1).toString(),
-                text: reply,
-                sender: "other",
-                timestamp: new Date(),
-              };
-              setMessages(prev => [...prev, autoReply]);
-              setIsTyping(false);
-              setReplyIndex(prev => prev + 1);
-            }, 3000);
+
+            // Call OpenAI API
+            fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                conversationHistory: messages,
+                systemMessage: scenario.systemMessage,
+                userMessage: textToSend,
+              }),
+            })
+              .then(res => res.json())
+              .then(data => {
+                const autoReply: Message = {
+                  id: (Date.now() + 1).toString(),
+                  text: data.reply || "Sorry, I couldn't respond right now.",
+                  sender: "other",
+                  timestamp: new Date(),
+                };
+                setMessages(prev => [...prev, autoReply]);
+                setIsTyping(false);
+              })
+              .catch(error => {
+                console.error('API error:', error);
+                setIsTyping(false);
+              });
           }, 500);
         }
       }, typingSpeed);
@@ -95,7 +107,6 @@ export default function ChatPage() {
       setMessages(scenarios[prevScenario].messages);
       setResponseText("");
       setIsTyping(false);
-      setReplyIndex(0);
       setPhoneInputText("");
       setIsSimulatingTyping(false);
     }
@@ -109,7 +120,6 @@ export default function ChatPage() {
       setMessages(scenarios[nextScenario].messages);
       setResponseText("");
       setIsTyping(false);
-      setReplyIndex(0);
       setPhoneInputText("");
       setIsSimulatingTyping(false);
     }
