@@ -30,7 +30,7 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
       <main className="text-center space-y-8 p-8">
         <h1 className="text-5xl font-bold text-gray-900">
-          CG Interface
+          Rylai
         </h1>
         <p className="text-xl text-gray-600 max-w-2xl">
           Educational intervention about online unwanted sexual solicitations
