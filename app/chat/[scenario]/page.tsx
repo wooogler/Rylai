@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Settings, LogOut, Send, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message } from "../../store/useScenarioStore";
@@ -173,7 +173,7 @@ export default function ChatPage() {
                 Back to Admin
               </Link>
             ) : (
-              <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+              <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5 mr-2" />
                 Back
               </Link>

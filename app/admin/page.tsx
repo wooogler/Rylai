@@ -16,7 +16,7 @@ function generateSlug(name: string): string {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { scenarios, commonSystemPrompt, addScenario, deleteScenario, setCommonSystemPrompt } = useScenarioStore();
+  const { scenarios, commonSystemPrompt, addScenario, deleteScenario, updateScenario, setCommonSystemPrompt } = useScenarioStore();
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
   const [editingCommonPrompt, setEditingCommonPrompt] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
@@ -96,19 +96,35 @@ export default function AdminPage() {
     setHasChanges(true);
   };
 
-  const handleSave = () => {
-    // Save common system prompt
-    setCommonSystemPrompt(editingCommonPrompt);
+  const handleSave = async () => {
+    try {
+      // Save common system prompt
+      await setCommonSystemPrompt(editingCommonPrompt);
 
-    // Clear all existing scenarios and add updated ones
-    scenarios.forEach(s => deleteScenario(s.id));
-    editingScenarios.forEach(s => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { id, ...rest } = s;
-      addScenario(rest);
-    });
-    setHasChanges(false);
-    alert("Scenarios saved successfully!");
+      // Update existing scenarios
+      for (const scenario of editingScenarios) {
+        if (scenarios.find(s => s.id === scenario.id)) {
+          await updateScenario(scenario.id, scenario);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { id, ...rest } = scenario;
+          await addScenario(rest);
+        }
+      }
+
+      // Delete scenarios that were removed
+      for (const scenario of scenarios) {
+        if (!editingScenarios.find(s => s.id === scenario.id)) {
+          await deleteScenario(scenario.id);
+        }
+      }
+
+      setHasChanges(false);
+      alert("Scenarios saved successfully!");
+    } catch (error) {
+      console.error("Error saving scenarios:", error);
+      alert("Failed to save scenarios. Please try again.");
+    }
   };
 
   const handleExport = () => {
@@ -139,7 +155,7 @@ export default function AdminPage() {
         const content = e.target?.result as string;
         const imported = JSON.parse(content);
 
-        // Support both old format (array only) and new format (with commonSystemPrompt)
+        // Support both old format (array only) and new format (with scenarios key)
         if (Array.isArray(imported)) {
           setEditingScenarios(imported);
         } else if (imported.scenarios) {

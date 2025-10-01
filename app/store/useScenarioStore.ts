@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { supabase } from '@/lib/supabase';
 
 export interface Message {
   id: string;
@@ -20,18 +20,21 @@ export interface Scenario {
 }
 
 interface ScenarioStore {
+  currentUser: string | null;
+  userId: string | null;
   scenarios: Scenario[];
   commonSystemPrompt: string;
-  isAdmin: boolean;
+  isLoading: boolean;
   isAuthenticated: boolean;
-  setIsAdmin: (isAdmin: boolean) => void;
-  setAuthenticated: (isAuthenticated: boolean) => void;
-  setCommonSystemPrompt: (prompt: string) => void;
-  logout: () => void;
-  addScenario: (scenario: Omit<Scenario, 'id'>) => void;
-  updateScenario: (id: number, scenario: Partial<Scenario>) => void;
-  deleteScenario: (id: number) => void;
+  isAdmin: boolean;
+  setCurrentUser: (username: string, asAdmin?: boolean) => Promise<void>;
+  loadUserScenarios: () => Promise<void>;
+  setCommonSystemPrompt: (prompt: string) => Promise<void>;
+  addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
+  updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
+  deleteScenario: (id: number) => Promise<void>;
   getScenarioBySlug: (slug: string) => Scenario | undefined;
+  logout: () => void;
 }
 
 const BASE_SYSTEM_MESSAGE = `Keep responses short (1-2 sentences), casual, and text-message style.
@@ -253,59 +256,203 @@ Your tactics:
   },
 ];
 
-export const useScenarioStore = create<ScenarioStore>()(
-  persist(
-    (set, get) => ({
-      scenarios: defaultScenarios,
-      commonSystemPrompt: BASE_SYSTEM_MESSAGE,
-      isAdmin: false,
-      isAuthenticated: false,
+export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
+  currentUser: null,
+  userId: null,
+  scenarios: defaultScenarios,
+  commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+  isLoading: false,
+  isAuthenticated: false,
+  isAdmin: false,
 
-      setIsAdmin: (isAdmin) => {
-        set({ isAdmin });
-      },
+  setCurrentUser: async (username: string, asAdmin: boolean = true) => {
+    set({ isLoading: true });
+    try {
+      // Check if user exists
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id, common_system_prompt')
+        .eq('username', username)
+        .single();
 
-      setAuthenticated: (isAuthenticated) => {
-        set({ isAuthenticated });
-      },
-
-      setCommonSystemPrompt: (prompt) => {
-        set({ commonSystemPrompt: prompt });
-      },
-
-      logout: () => {
-        set({ isAdmin: false, isAuthenticated: false });
-      },
-
-      addScenario: (scenario) => {
-        set((state) => {
-          const newId = Math.max(...state.scenarios.map(s => s.id), 0) + 1;
-          return {
-            scenarios: [...state.scenarios, { ...scenario, id: newId }]
-          };
+      if (existingUser) {
+        set({
+          currentUser: username,
+          userId: existingUser.id,
+          commonSystemPrompt: existingUser.common_system_prompt,
+          isAuthenticated: true,
+          isAdmin: asAdmin
         });
-      },
+      } else {
+        // Create new user
+        const { data: newUser, error } = await supabase
+          .from('users')
+          .insert({ username, common_system_prompt: BASE_SYSTEM_MESSAGE })
+          .select('id, common_system_prompt')
+          .single();
 
-      updateScenario: (id, updates) => {
-        set((state) => ({
-          scenarios: state.scenarios.map((scenario) =>
-            scenario.id === id ? { ...scenario, ...updates } : scenario
-          ),
+        if (error) throw error;
+
+        // Initialize with default scenarios
+        const scenariosToInsert = defaultScenarios.map(scenario => ({
+          user_id: newUser.id,
+          slug: scenario.slug,
+          name: scenario.name,
+          predator_name: scenario.predatorName,
+          handle: scenario.handle,
+          system_prompt: scenario.systemPrompt,
+          preset_messages: scenario.presetMessages,
+          description: scenario.description,
         }));
-      },
 
-      deleteScenario: (id) => {
-        set((state) => ({
-          scenarios: state.scenarios.filter((scenario) => scenario.id !== id),
-        }));
-      },
+        await supabase.from('scenarios').insert(scenariosToInsert);
 
-      getScenarioBySlug: (slug) => {
-        return get().scenarios.find((scenario) => scenario.slug === slug);
-      },
-    }),
-    {
-      name: 'scenario-storage',
+        set({
+          currentUser: username,
+          userId: newUser.id,
+          commonSystemPrompt: newUser.common_system_prompt,
+          isAuthenticated: true,
+          isAdmin: asAdmin
+        });
+      }
+    } finally {
+      set({ isLoading: false });
     }
-  )
-);
+  },
+
+  setCommonSystemPrompt: async (prompt: string) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({ common_system_prompt: prompt })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    set({ commonSystemPrompt: prompt });
+  },
+
+  loadUserScenarios: async () => {
+    const { userId } = get();
+    if (!userId) return;
+
+    set({ isLoading: true });
+    try {
+      const { data, error } = await supabase
+        .from('scenarios')
+        .select('*')
+        .eq('user_id', userId)
+        .order('id', { ascending: true });
+
+      if (error) throw error;
+
+      const scenarios: Scenario[] = (data || []).map(row => ({
+        id: row.id,
+        slug: row.slug,
+        name: row.name,
+        predatorName: row.predator_name,
+        handle: row.handle,
+        systemPrompt: row.system_prompt,
+        presetMessages: row.preset_messages,
+        description: row.description,
+      }));
+
+      set({ scenarios: scenarios.length > 0 ? scenarios : defaultScenarios });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  addScenario: async (scenario: Omit<Scenario, 'id'>) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const { data, error } = await supabase
+      .from('scenarios')
+      .insert({
+        user_id: userId,
+        slug: scenario.slug,
+        name: scenario.name,
+        predator_name: scenario.predatorName,
+        handle: scenario.handle,
+        system_prompt: scenario.systemPrompt,
+        preset_messages: scenario.presetMessages,
+        description: scenario.description,
+      })
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    const newScenario: Scenario = {
+      id: data.id,
+      slug: data.slug,
+      name: data.name,
+      predatorName: data.predator_name,
+      handle: data.handle,
+      systemPrompt: data.system_prompt,
+      presetMessages: data.preset_messages,
+      description: data.description,
+    };
+
+    set((state) => ({
+      scenarios: [...state.scenarios, newScenario],
+    }));
+  },
+
+  updateScenario: async (id: number, updates: Partial<Scenario>) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const dbUpdates: Record<string, unknown> = {};
+    if (updates.slug) dbUpdates.slug = updates.slug;
+    if (updates.name) dbUpdates.name = updates.name;
+    if (updates.predatorName) dbUpdates.predator_name = updates.predatorName;
+    if (updates.handle) dbUpdates.handle = updates.handle;
+    if (updates.systemPrompt) dbUpdates.system_prompt = updates.systemPrompt;
+    if (updates.presetMessages) dbUpdates.preset_messages = updates.presetMessages;
+    if (updates.description) dbUpdates.description = updates.description;
+    dbUpdates.updated_at = new Date().toISOString();
+
+    const { error } = await supabase
+      .from('scenarios')
+      .update(dbUpdates)
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+
+    set((state) => ({
+      scenarios: state.scenarios.map((scenario) =>
+        scenario.id === id ? { ...scenario, ...updates } : scenario
+      ),
+    }));
+  },
+
+  deleteScenario: async (id: number) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('scenarios')
+      .delete()
+      .eq('id', id)
+      .eq('user_id', userId);
+
+    if (error) throw error;
+
+    set((state) => ({
+      scenarios: state.scenarios.filter((scenario) => scenario.id !== id),
+    }));
+  },
+
+  getScenarioBySlug: (slug: string) => {
+    return get().scenarios.find((scenario) => scenario.slug === slug);
+  },
+
+  logout: () => {
+    set({ currentUser: null, userId: null, scenarios: defaultScenarios, isAuthenticated: false });
+  },
+}));
