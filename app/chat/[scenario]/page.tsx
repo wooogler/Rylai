@@ -87,7 +87,7 @@ export default function ChatPage() {
   };
 
   const handleSendResponse = () => {
-    if (responseText.trim() && !isTyping) {
+    if (responseText.trim() && !isTyping && !isGeneratingFeedback) {
       const textToSend = responseText;
       setResponseText("");
 
@@ -258,11 +258,11 @@ export default function ChatPage() {
                         handleSendResponse();
                       }
                     }}
-                    disabled={isTyping}
+                    disabled={isTyping || isGeneratingFeedback}
                     className="w-full pl-6 pr-16 py-4 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:cursor-not-allowed text-base"
                     placeholder="Send a message..."
                   />
-                  {responseText.trim() && !isTyping && (
+                  {responseText.trim() && !isTyping && !isGeneratingFeedback && (
                     <button
                       onClick={handleSendResponse}
                       className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-purple-600 rounded-full text-white hover:bg-purple-700 transition-colors"
@@ -285,30 +285,32 @@ export default function ChatPage() {
                 ref={feedbackContainerRef}
                 className="flex-1 overflow-y-auto space-y-4 text-gray-700"
               >
-                {feedbackItems.length === 0 ? (
+                {feedbackItems.length === 0 && !isGeneratingFeedback ? (
                   <p className="text-gray-400 italic">
                     Feedback will appear here after you send a message...
                   </p>
                 ) : (
-                  feedbackItems.map((feedback, index) => (
-                    <div
-                      key={index}
-                      className="p-3 bg-purple-50 rounded-lg border border-purple-200"
-                    >
-                      <p className="text-sm font-medium text-purple-900 mb-1">
-                        Exchange {index + 1}
-                      </p>
-                      <p className="text-sm whitespace-pre-wrap">{feedback}</p>
-                    </div>
-                  ))
-                )}
-                {isGeneratingFeedback && feedbackItems.length === 0 && (
-                  <div className="flex items-center space-x-2 text-gray-500">
-                    <div className="animate-pulse">●</div>
-                    <div className="animate-pulse delay-75">●</div>
-                    <div className="animate-pulse delay-150">●</div>
-                    <span className="text-sm">Generating feedback...</span>
-                  </div>
+                  <>
+                    {feedbackItems.map((feedback, index) => (
+                      <div
+                        key={index}
+                        className="p-3 bg-purple-50 rounded-lg border border-purple-200"
+                      >
+                        <p className="text-sm font-medium text-purple-900 mb-1">
+                          Exchange {index + 1}
+                        </p>
+                        <p className="text-sm whitespace-pre-wrap">{feedback}</p>
+                      </div>
+                    ))}
+                    {isGeneratingFeedback && (
+                      <div className="flex items-center space-x-2 text-gray-500">
+                        <div className="animate-pulse">●</div>
+                        <div className="animate-pulse delay-75">●</div>
+                        <div className="animate-pulse delay-150">●</div>
+                        <span className="text-sm">Generating feedback...</span>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
