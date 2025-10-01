@@ -76,11 +76,11 @@ export default function Home() {
   const getButtonText = () => {
     switch (buttonState) {
       case "user":
-        return "Start Chat Scenario";
+        return "Start Chatting";
       case "existing":
-        return "Edit Scenarios";
+        return "Edit Settings";
       case "new":
-        return "Create Scenarios";
+        return "Create New Settings";
       default:
         return "Start";
     }
