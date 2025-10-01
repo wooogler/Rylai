@@ -93,7 +93,11 @@ export default function Home() {
           RYLAI
         </h1>
         <p className="text-xl text-gray-600 max-w-2xl">
-          Resilient Youth Learn through Artificial Intelligence
+          <span className="font-bold">R</span>esilient{" "}
+          <span className="font-bold">Y</span>outh{" "}
+          <span className="font-bold">L</span>earn through{" "}
+          <span className="font-bold">A</span>rtificial{" "}
+          <span className="font-bold">I</span>ntelligence
         </p>
         <div className="pt-4 space-y-4">
           <div>
