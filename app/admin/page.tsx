@@ -27,14 +27,14 @@ export default function AdminPage() {
     setEditingCommonPrompt(commonSystemPrompt);
   }, [scenarios, commonSystemPrompt]);
 
-  const handleUpdateScenario = (index: number, field: keyof Scenario, value: any) => {
+  const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
 
     if (field === 'name') {
       updated[index] = {
         ...updated[index],
-        name: value,
-        slug: generateSlug(value),
+        name: value as string,
+        slug: generateSlug(value as string),
       };
     } else {
       updated[index] = {
