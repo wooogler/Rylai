@@ -147,6 +147,8 @@ export default function AdminPage() {
   const handleExport = () => {
     const exportData = {
       commonSystemPrompt: editingCommonPrompt,
+      feedbackPersona: editingFeedbackPersona,
+      feedbackInstruction: editingFeedbackInstruction,
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -179,6 +181,12 @@ export default function AdminPage() {
           setEditingScenarios(imported.scenarios);
           if (imported.commonSystemPrompt) {
             setEditingCommonPrompt(imported.commonSystemPrompt);
+          }
+          if (imported.feedbackPersona) {
+            setEditingFeedbackPersona(imported.feedbackPersona);
+          }
+          if (imported.feedbackInstruction) {
+            setEditingFeedbackInstruction(imported.feedbackInstruction);
           }
         }
 
