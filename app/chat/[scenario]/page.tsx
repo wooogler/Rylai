@@ -198,7 +198,7 @@ export default function ChatPage() {
                 Back
               </Link>
               <h1 className="text-2xl font-bold mt-4">
-                Educational Intervention about Online Unwanted Sexual Solicitations
+                RYLAI: Resilient Youth Learn through Artificial Intelligence
               </h1>
             </div>
             <div className="flex gap-2">
@@ -329,7 +329,7 @@ export default function ChatPage() {
 
             {/* Feedback Section */}
             <div className="bg-white rounded-lg shadow p-6 flex-1 flex flex-col mb-6">
-              <h2 className="text-lg font-semibold mb-4">Feedback:</h2>
+              <h2 className="text-lg font-semibold mb-4">RYLAI's Feedback:</h2>
               <div
                 ref={feedbackContainerRef}
                 className="flex-1 overflow-y-auto space-y-4 text-gray-700"

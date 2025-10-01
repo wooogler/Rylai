@@ -1,6 +1,7 @@
 {
   "name": "rylai",
   "version": "0.1.0",
+  "description": "Resilient Youth Learn through Artificial Intelligence - A Teen-based Educational Intervention for Cybergrooming Prevention",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",

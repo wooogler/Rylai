@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rylai",
-  description: "Educational intervention for online unwanted sexual solicitations",
+  title: "RYLAI",
+  description: "Resilient Youth Learn through Artificial Intelligence - A Teen-based Educational Intervention for Cybergrooming Prevention",
 };
 
 export default function RootLayout({
