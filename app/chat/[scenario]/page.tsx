@@ -329,7 +329,7 @@ export default function ChatPage() {
 
             {/* Feedback Section */}
             <div className="bg-white rounded-lg shadow p-6 flex-1 flex flex-col mb-6">
-              <h2 className="text-lg font-semibold mb-4">RYLAI's Feedback:</h2>
+              <h2 className="text-lg font-semibold mb-4">RYLAI&apos;s Feedback:</h2>
               <div
                 ref={feedbackContainerRef}
                 className="flex-1 overflow-y-auto space-y-4 text-gray-700"

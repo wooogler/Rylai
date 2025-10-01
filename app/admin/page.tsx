@@ -16,7 +16,7 @@ function generateSlug(name: string): string {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { scenarios, commonSystemPrompt, addScenario, updateScenario, deleteScenario, setCommonSystemPrompt } = useScenarioStore();
+  const { scenarios, commonSystemPrompt, addScenario, deleteScenario, setCommonSystemPrompt } = useScenarioStore();
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
   const [editingCommonPrompt, setEditingCommonPrompt] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
@@ -103,6 +103,7 @@ export default function AdminPage() {
     // Clear all existing scenarios and add updated ones
     scenarios.forEach(s => deleteScenario(s.id));
     editingScenarios.forEach(s => {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { id, ...rest } = s;
       addScenario(rest);
     });
