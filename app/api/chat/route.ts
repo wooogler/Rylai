@@ -12,31 +12,40 @@ interface ConversationMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, systemMessage, userMessage } = await req.json();
+    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage } = await req.json();
 
-    // Build messages array from conversation history
-    const messages = conversationHistory.map((msg: ConversationMessage) => ({
-      role: msg.sender === 'user' ? 'user' : 'assistant',
-      content: msg.text,
-    }));
+    // Build conversation context
+    const conversationContext = conversationHistory
+      .map((msg: ConversationMessage) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
+      .join('\n');
 
-    // Add the new user message
-    messages.push({
-      role: 'user',
-      content: userMessage,
+    // Merge scenario-specific prompt with common prompt
+    const fullSystemPrompt = commonSystemPrompt
+      ? `${systemMessage}\n\n${commonSystemPrompt}`
+      : systemMessage;
+
+    // Combine system prompt, conversation history, and user message
+    const input = `${fullSystemPrompt}
+
+Previous conversation:
+${conversationContext}
+
+User: ${userMessage}
+
+Respond as the predator in a short, casual text message (1-2 sentences). Do not use emojis.`;
+
+    const response = await openai.responses.create({
+      model: 'gpt-5-mini',
+      input: input,
+      reasoning: {
+        effort: 'minimal'
+      },
+      text: {
+        verbosity: 'low'
+      }
     });
 
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemMessage },
-        ...messages,
-      ],
-      temperature: 0.8,
-      max_tokens: 150,
-    });
-
-    const reply = completion.choices[0].message.content;
+    const reply = response.output_text;
 
     return NextResponse.json({ reply });
   } catch (error) {

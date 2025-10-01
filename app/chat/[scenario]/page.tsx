@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, ChevronLeft } from "lucide-react";
+import { ArrowLeft, ChevronLeft, Settings, LogOut } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { scenarios, type Message } from "../scenarios";
+import { useScenarioStore, type Message } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
@@ -14,16 +14,27 @@ export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
   const scenarioSlug = params.scenario as string;
+  const { scenarios, commonSystemPrompt, isAdmin, isAuthenticated, logout } = useScenarioStore();
+
+  // Redirect to home if not authenticated
+  useEffect(() => {
+    if (!isAuthenticated) {
+      router.push('/');
+    }
+  }, [isAuthenticated, router]);
 
   const initialScenarioIndex = scenarios.findIndex(s => s.slug === scenarioSlug);
   const [currentScenario, setCurrentScenario] = useState(initialScenarioIndex >= 0 ? initialScenarioIndex : 0);
-  const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].messages);
+  const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].presetMessages);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [phoneInputText, setPhoneInputText] = useState("");
   const [isSimulatingTyping, setIsSimulatingTyping] = useState(false);
+  const [feedbackItems, setFeedbackItems] = useState<string[]>([]);
+  const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const feedbackContainerRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -34,6 +45,48 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isTyping]);
+
+  useEffect(() => {
+    // Update messages when scenarios change from admin
+    setMessages(scenarios[currentScenario].presetMessages);
+  }, [scenarios, currentScenario]);
+
+  const generateFeedback = async (userMessage: string, predatorResponse: string) => {
+    setIsGeneratingFeedback(true);
+
+    try {
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationHistory: messages,
+          userMessage,
+          predatorResponse,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.feedback) {
+        setFeedbackItems(prev => [...prev, data.feedback]);
+
+        // Scroll feedback container to bottom
+        setTimeout(() => {
+          if (feedbackContainerRef.current) {
+            feedbackContainerRef.current.scrollTop = feedbackContainerRef.current.scrollHeight;
+          }
+        }, 100);
+      } else {
+        throw new Error('No feedback in response');
+      }
+
+      setIsGeneratingFeedback(false);
+    } catch (error) {
+      console.error('Feedback generation error:', error);
+      setFeedbackItems(prev => [...prev, 'Failed to generate feedback. Please try again.']);
+      setIsGeneratingFeedback(false);
+    }
+  };
 
   const handleSendResponse = () => {
     if (responseText.trim() && !isTyping && !isSimulatingTyping) {
@@ -74,7 +127,8 @@ export default function ChatPage() {
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 conversationHistory: messages,
-                systemMessage: scenario.systemMessage,
+                systemMessage: scenario.systemPrompt,
+                commonSystemPrompt: commonSystemPrompt,
                 userMessage: textToSend,
               }),
             })
@@ -88,6 +142,9 @@ export default function ChatPage() {
                 };
                 setMessages(prev => [...prev, autoReply]);
                 setIsTyping(false);
+
+                // Generate feedback after predator responds
+                generateFeedback(textToSend, autoReply.text);
               })
               .catch(error => {
                 console.error('API error:', error);
@@ -104,11 +161,12 @@ export default function ChatPage() {
       const prevScenario = currentScenario - 1;
       router.push(`/chat/${scenarios[prevScenario].slug}`);
       setCurrentScenario(prevScenario);
-      setMessages(scenarios[prevScenario].messages);
+      setMessages(scenarios[prevScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
       setPhoneInputText("");
       setIsSimulatingTyping(false);
+      setFeedbackItems([]);
     }
   };
 
@@ -117,11 +175,12 @@ export default function ChatPage() {
       const nextScenario = currentScenario + 1;
       router.push(`/chat/${scenarios[nextScenario].slug}`);
       setCurrentScenario(nextScenario);
-      setMessages(scenarios[nextScenario].messages);
+      setMessages(scenarios[nextScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
       setPhoneInputText("");
       setIsSimulatingTyping(false);
+      setFeedbackItems([]);
     }
   };
 
@@ -132,13 +191,38 @@ export default function ChatPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="w-5 h-5 mr-2" />
-            Back
-          </Link>
-          <h1 className="text-2xl font-bold mt-4">
-            Educational Intervention about Online Unwanted Sexual Solicitations
-          </h1>
+          <div className="flex justify-between items-start">
+            <div>
+              <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back
+              </Link>
+              <h1 className="text-2xl font-bold mt-4">
+                Educational Intervention about Online Unwanted Sexual Solicitations
+              </h1>
+            </div>
+            <div className="flex gap-2">
+              {isAdmin && (
+                <Button
+                  onClick={() => router.push("/admin")}
+                  variant="ghost"
+                >
+                  <Settings className="w-4 h-4 mr-2" />
+                  Admin
+                </Button>
+              )}
+              <Button
+                onClick={() => {
+                  logout();
+                  router.push("/");
+                }}
+                variant="ghost"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            </div>
+          </div>
         </div>
 
         {/* Main Content */}
@@ -163,7 +247,7 @@ export default function ChatPage() {
                     <ChevronLeft className="w-6 h-6" />
                     <Avatar seed={scenario.handle} size={32} />
                     <div>
-                      <p className="font-semibold text-sm">{scenario.username}</p>
+                      <p className="font-semibold text-sm">{scenario.predatorName}</p>
                       <p className="text-xs text-gray-500">{scenario.handle}</p>
                     </div>
                   </div>
@@ -218,7 +302,7 @@ export default function ChatPage() {
           <div className="flex flex-col h-[715px]">
             {/* Response Section */}
             <div className="bg-white rounded-lg shadow p-6 mb-6">
-              <h2 className="text-lg font-semibold mb-4">Respond to {scenario.username}:</h2>
+              <h2 className="text-lg font-semibold mb-4">Respond to {scenario.predatorName}:</h2>
               <div className="flex gap-3">
                 <input
                   type="text"
@@ -246,10 +330,35 @@ export default function ChatPage() {
             {/* Feedback Section */}
             <div className="bg-white rounded-lg shadow p-6 flex-1 flex flex-col mb-6">
               <h2 className="text-lg font-semibold mb-4">Feedback:</h2>
-              <div className="flex-1 overflow-y-auto space-y-2 text-gray-700">
-                <p>Acknowledge current CG stage</p>
-                <p>Vulnerable Behavior Identification</p>
-                <p>Protective Strategy Identification</p>
+              <div
+                ref={feedbackContainerRef}
+                className="flex-1 overflow-y-auto space-y-4 text-gray-700"
+              >
+                {feedbackItems.length === 0 ? (
+                  <p className="text-gray-400 italic">
+                    Feedback will appear here after you send a message...
+                  </p>
+                ) : (
+                  feedbackItems.map((feedback, index) => (
+                    <div
+                      key={index}
+                      className="p-3 bg-purple-50 rounded-lg border border-purple-200"
+                    >
+                      <p className="text-sm font-medium text-purple-900 mb-1">
+                        Exchange {index + 1}
+                      </p>
+                      <p className="text-sm whitespace-pre-wrap">{feedback}</p>
+                    </div>
+                  ))
+                )}
+                {isGeneratingFeedback && feedbackItems.length === 0 && (
+                  <div className="flex items-center space-x-2 text-gray-500">
+                    <div className="animate-pulse">●</div>
+                    <div className="animate-pulse delay-75">●</div>
+                    <div className="animate-pulse delay-150">●</div>
+                    <span className="text-sm">Generating feedback...</span>
+                  </div>
+                )}
               </div>
             </div>
 

@@ -2,18 +2,24 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useScenarioStore } from "./store/useScenarioStore";
 
 export default function Home() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState(false);
   const router = useRouter();
+  const { setIsAdmin, setAuthenticated, scenarios } = useScenarioStore();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (password === "vtcg") {
-      // Set auth cookie
-      document.cookie = "auth=vtcg-authenticated; path=/; max-age=86400"; // 24 hours
-      router.push("/chat/age-focused-compliments");
+    if (password === "admin") {
+      setIsAdmin(true);
+      setAuthenticated(true);
+      router.push("/admin");
+    } else if (password === "vtcg") {
+      setIsAdmin(false);
+      setAuthenticated(true);
+      router.push(`/chat/${scenarios[0].slug}`);
     } else {
       setError(true);
       setPassword("");
