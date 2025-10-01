@@ -13,18 +13,24 @@ export interface Database {
           id: string;
           username: string;
           common_system_prompt: string;
+          feedback_persona: string;
+          feedback_instruction: string;
           created_at: string;
         };
         Insert: {
           id?: string;
           username: string;
           common_system_prompt?: string;
+          feedback_persona?: string;
+          feedback_instruction?: string;
           created_at?: string;
         };
         Update: {
           id?: string;
           username?: string;
           common_system_prompt?: string;
+          feedback_persona?: string;
+          feedback_instruction?: string;
           created_at?: string;
         };
       };

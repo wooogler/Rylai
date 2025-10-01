@@ -24,12 +24,15 @@ interface ScenarioStore {
   userId: string | null;
   scenarios: Scenario[];
   commonSystemPrompt: string;
+  feedbackPersona: string;
+  feedbackInstruction: string;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
   setCurrentUser: (username: string, asAdmin?: boolean) => Promise<void>;
   loadUserScenarios: () => Promise<void>;
   setCommonSystemPrompt: (prompt: string) => Promise<void>;
+  setFeedbackPrompts: (persona: string, instruction: string) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -40,6 +43,15 @@ interface ScenarioStore {
 const BASE_SYSTEM_MESSAGE = `Keep responses short (1-2 sentences), casual, and text-message style.
 Use the conversation history to stay in character.
 NEVER use emojis in your responses.`;
+
+const DEFAULT_FEEDBACK_PERSONA = `You are an educational assistant helping learners recognize online grooming tactics.`;
+
+const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the learner focusing on:
+1. What grooming tactics the predator is using (if any)
+2. Whether the user's response was safe or potentially risky
+3. Specific suggestions for safer responses
+
+Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
 
 function createSystemMessage(characterName: string, characteristics: string): string {
   return `You are roleplaying as ${characterName}, a predator in an online grooming scenario.
@@ -261,6 +273,8 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   userId: null,
   scenarios: defaultScenarios,
   commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+  feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
+  feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION,
   isLoading: false,
   isAuthenticated: false,
   isAdmin: false,
@@ -271,7 +285,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       // Check if user exists
       const { data: existingUser } = await supabase
         .from('users')
-        .select('id, common_system_prompt')
+        .select('id, common_system_prompt, feedback_persona, feedback_instruction')
         .eq('username', username)
         .single();
 
@@ -280,6 +294,8 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
           currentUser: username,
           userId: existingUser.id,
           commonSystemPrompt: existingUser.common_system_prompt,
+          feedbackPersona: existingUser.feedback_persona,
+          feedbackInstruction: existingUser.feedback_instruction,
           isAuthenticated: true,
           isAdmin: asAdmin
         });
@@ -287,8 +303,13 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
         // Create new user
         const { data: newUser, error } = await supabase
           .from('users')
-          .insert({ username, common_system_prompt: BASE_SYSTEM_MESSAGE })
-          .select('id, common_system_prompt')
+          .insert({
+            username,
+            common_system_prompt: BASE_SYSTEM_MESSAGE,
+            feedback_persona: DEFAULT_FEEDBACK_PERSONA,
+            feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
+          })
+          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
           .single();
 
         if (error) throw error;
@@ -311,6 +332,8 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
           currentUser: username,
           userId: newUser.id,
           commonSystemPrompt: newUser.common_system_prompt,
+          feedbackPersona: newUser.feedback_persona,
+          feedbackInstruction: newUser.feedback_instruction,
           isAuthenticated: true,
           isAdmin: asAdmin
         });
@@ -332,6 +355,23 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
     if (error) throw error;
 
     set({ commonSystemPrompt: prompt });
+  },
+
+  setFeedbackPrompts: async (persona: string, instruction: string) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    const { error } = await supabase
+      .from('users')
+      .update({
+        feedback_persona: persona,
+        feedback_instruction: instruction
+      })
+      .eq('id', userId);
+
+    if (error) throw error;
+
+    set({ feedbackPersona: persona, feedbackInstruction: instruction });
   },
 
   loadUserScenarios: async () => {

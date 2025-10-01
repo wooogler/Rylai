@@ -14,7 +14,7 @@ export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
   const scenarioSlug = params.scenario as string;
-  const { scenarios, commonSystemPrompt, isAdmin, isAuthenticated, logout } = useScenarioStore();
+  const { scenarios, commonSystemPrompt, feedbackPersona, feedbackInstruction, isAdmin, isAuthenticated, logout } = useScenarioStore();
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -60,6 +60,8 @@ export default function ChatPage() {
           conversationHistory: messages,
           userMessage,
           predatorResponse,
+          feedbackPersona,
+          feedbackInstruction,
         }),
       });
 

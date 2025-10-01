@@ -16,16 +16,30 @@ function generateSlug(name: string): string {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { scenarios, commonSystemPrompt, addScenario, deleteScenario, updateScenario, setCommonSystemPrompt } = useScenarioStore();
+  const {
+    scenarios,
+    commonSystemPrompt,
+    feedbackPersona,
+    feedbackInstruction,
+    addScenario,
+    deleteScenario,
+    updateScenario,
+    setCommonSystemPrompt,
+    setFeedbackPrompts
+  } = useScenarioStore();
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
   const [editingCommonPrompt, setEditingCommonPrompt] = useState("");
+  const [editingFeedbackPersona, setEditingFeedbackPersona] = useState("");
+  const [editingFeedbackInstruction, setEditingFeedbackInstruction] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEditingScenarios(JSON.parse(JSON.stringify(scenarios)));
     setEditingCommonPrompt(commonSystemPrompt);
-  }, [scenarios, commonSystemPrompt]);
+    setEditingFeedbackPersona(feedbackPersona);
+    setEditingFeedbackInstruction(feedbackInstruction);
+  }, [scenarios, commonSystemPrompt, feedbackPersona, feedbackInstruction]);
 
   const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
@@ -100,6 +114,9 @@ export default function AdminPage() {
     try {
       // Save common system prompt
       await setCommonSystemPrompt(editingCommonPrompt);
+
+      // Save feedback prompts
+      await setFeedbackPrompts(editingFeedbackPersona, editingFeedbackInstruction);
 
       // Update existing scenarios
       for (const scenario of editingScenarios) {
@@ -233,13 +250,70 @@ export default function AdminPage() {
               </Button>
             </div>
           </div>
-          <h1 className="text-3xl font-bold">Scenario Editor</h1>
+          <h1 className="text-3xl font-bold">Admin Settings</h1>
           <p className="text-gray-600 mt-2">
-            Edit scenarios, predator names, system prompts, and preset messages
+            Configure prompts and scenarios for your educational scenarios
           </p>
         </div>
 
-        {/* Common System Prompt */}
+        {/* Feedback Section */}
+        <div className="mb-8">
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Feedback Settings</h2>
+
+          {/* Feedback Prompts */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h3 className="text-lg font-semibold mb-3">Feedback Prompts</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Customize how the AI provides feedback to learners after conversations.
+            </p>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Persona (Role Definition)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Define the AI&apos;s role and perspective when giving feedback.
+                </p>
+                <textarea
+                  value={editingFeedbackPersona}
+                  onChange={(e) => {
+                    setEditingFeedbackPersona(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  rows={2}
+                  placeholder="You are an educational assistant helping learners..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Instruction (Feedback Guidelines)
+                </label>
+                <p className="text-xs text-gray-500 mb-2">
+                  Specify what the feedback should focus on and how it should be structured.
+                </p>
+                <textarea
+                  value={editingFeedbackInstruction}
+                  onChange={(e) => {
+                    setEditingFeedbackInstruction(e.target.value);
+                    setHasChanges(true);
+                  }}
+                  rows={8}
+                  placeholder="Provide constructive feedback focusing on..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Scenario Section */}
+        <div>
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Scenario Settings</h2>
+
+          {/* Common System Prompt */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h2 className="text-xl font-semibold mb-4">Common System Prompt</h2>
           <p className="text-sm text-gray-600 mb-3">
@@ -256,8 +330,8 @@ export default function AdminPage() {
           />
         </div>
 
-        {/* Scenarios List */}
-        <div className="space-y-6">
+          {/* Scenarios List */}
+          <div className="space-y-6">
           {editingScenarios.map((scenario, scenarioIndex) => (
             <div key={scenario.id} className="bg-white rounded-lg shadow-md p-6">
               {/* Scenario Title */}
@@ -401,10 +475,10 @@ export default function AdminPage() {
               </div>
             </div>
           ))}
-        </div>
+          </div>
 
-        {/* Add Scenario Button */}
-        <div className="mt-6">
+          {/* Add Scenario Button */}
+          <div className="mt-6">
           <button
             onClick={handleAddScenario}
             className="flex items-center px-6 py-3 bg-purple-600 text-white hover:bg-purple-700 rounded-lg font-medium"
@@ -412,6 +486,7 @@ export default function AdminPage() {
             <Plus className="w-5 h-5 mr-2" />
             Add New Scenario
           </button>
+          </div>
         </div>
       </div>
     </div>
