@@ -168,59 +168,59 @@ export default function AdminPage() {
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="mb-6 flex justify-between items-center">
-          <div>
+        <div className="mb-6">
+          <div className="flex justify-between items-center mb-4">
             <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
               <ArrowLeft className="w-5 h-5 mr-2" />
               Back to Home
             </Link>
-            <h1 className="text-3xl font-bold mt-4">Scenario Editor</h1>
-            <p className="text-gray-600 mt-2">
-              Edit scenarios, predator names, system prompts, and preset messages
-            </p>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleExport}
+                variant="ghost"
+                size="small"
+              >
+                <Download className="w-4 h-4 mr-1.5 inline" />
+                Export JSON
+              </Button>
+              <Button
+                onClick={() => fileInputRef.current?.click()}
+                variant="ghost"
+                size="small"
+              >
+                <Upload className="w-4 h-4 mr-1.5 inline" />
+                Import JSON
+              </Button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+              <Button
+                onClick={() => router.push(`/chat/${scenarios[0].slug}`)}
+                variant="secondary"
+                size="small"
+              >
+                <MessageSquare className="w-4 h-4 mr-1.5 inline" />
+                Go to Chat
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={!hasChanges}
+                variant="primary"
+                size="small"
+              >
+                <Save className="w-4 h-4 mr-1.5 inline" />
+                Save Changes
+              </Button>
+            </div>
           </div>
-          <div className="flex gap-2">
-            <Button
-              onClick={handleExport}
-              variant="ghost"
-              size="small"
-            >
-              <Download className="w-4 h-4 mr-1.5 inline" />
-              Export JSON
-            </Button>
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              variant="ghost"
-              size="small"
-            >
-              <Upload className="w-4 h-4 mr-1.5 inline" />
-              Import JSON
-            </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
-            <Button
-              onClick={() => router.push(`/chat/${scenarios[0].slug}`)}
-              variant="secondary"
-              size="small"
-            >
-              <MessageSquare className="w-4 h-4 mr-1.5 inline" />
-              Go to Chat
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!hasChanges}
-              variant="primary"
-              size="small"
-            >
-              <Save className="w-4 h-4 mr-1.5 inline" />
-              Save Changes
-            </Button>
-          </div>
+          <h1 className="text-3xl font-bold">Scenario Editor</h1>
+          <p className="text-gray-600 mt-2">
+            Edit scenarios, predator names, system prompts, and preset messages
+          </p>
         </div>
 
         {/* Common System Prompt */}

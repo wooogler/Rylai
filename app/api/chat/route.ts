@@ -32,7 +32,7 @@ ${conversationContext}
 
 User: ${userMessage}
 
-Respond as the predator in a short, casual text message (1-2 sentences). Do not use emojis.`;
+Respond as the character in a short, casual text message (1-2 sentences). Do not use emojis.`;
 
     const response = await openai.responses.create({
       model: 'gpt-5-mini',
