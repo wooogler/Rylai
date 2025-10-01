@@ -166,28 +166,29 @@ export default function ChatPage() {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="mb-6">
-          <div className="flex justify-end items-center mb-4">
-            <div className="flex gap-2">
-              {isAdmin && (
-                <Button
-                  onClick={() => router.push("/admin")}
-                  variant="ghost"
-                >
-                  <Settings className="w-4 h-4 mr-2" />
-                  Admin
-                </Button>
-              )}
-              <Button
-                onClick={() => {
-                  logout();
-                  router.push("/");
-                }}
-                variant="ghost"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
-            </div>
+          <div className="flex justify-between items-center mb-4">
+            {isAdmin ? (
+              <Link href="/admin" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back to Admin
+              </Link>
+            ) : (
+              <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back
+              </Link>
+            )}
+            <Button
+              onClick={() => {
+                logout();
+                router.push("/");
+              }}
+              variant="ghost"
+              size="small"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
           </div>
           <h1 className="text-2xl font-bold mb-6">
             RYLAI: Resilient Youth Learn through Artificial Intelligence
@@ -196,13 +197,6 @@ export default function ChatPage() {
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Back Button Row */}
-          <div className="lg:col-span-2">
-            <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-              <ArrowLeft className="w-5 h-5 mr-2" />
-              Back
-            </Link>
-          </div>
           {/* Chat Simulation - Left */}
           <div className="flex flex-col">
             <div className="bg-white rounded-lg shadow w-full h-[715px] flex flex-col">
