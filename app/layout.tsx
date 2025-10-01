@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "CG Interface",
+  title: "Rylai",
   description: "Educational intervention for online unwanted sexual solicitations",
 };
 
