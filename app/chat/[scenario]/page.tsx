@@ -49,7 +49,7 @@ export default function ChatPage() {
     setMessages(scenarios[currentScenario].presetMessages);
   }, [scenarios, currentScenario]);
 
-  const generateFeedback = async (userMessage: string, predatorResponse: string) => {
+  const generateFeedback = async (userMessage: string, predatorResponse: string = "") => {
     setIsGeneratingFeedback(true);
 
     try {
@@ -102,6 +102,9 @@ export default function ChatPage() {
       };
       setMessages(prev => [...prev, newMessage]);
 
+      // Generate feedback immediately after user sends message
+      generateFeedback(textToSend);
+
       // Show typing indicator and call OpenAI API
       setIsTyping(true);
 
@@ -126,9 +129,6 @@ export default function ChatPage() {
           };
           setMessages(prev => [...prev, autoReply]);
           setIsTyping(false);
-
-          // Generate feedback after predator responds
-          generateFeedback(textToSend, autoReply.text);
         })
         .catch(error => {
           console.error('API error:', error);
@@ -275,11 +275,11 @@ export default function ChatPage() {
           {/* Feedback - Right */}
           <div className="flex flex-col h-[715px]">
             {/* Feedback Section */}
-            <div className="bg-white rounded-lg shadow p-6 flex-1 flex flex-col mb-6">
+            <div className="bg-white rounded-lg shadow p-6 flex flex-col mb-6 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
               <h2 className="text-lg font-semibold mb-4">RYLAI&apos;s Feedback:</h2>
               <div
                 ref={feedbackContainerRef}
-                className="flex-1 overflow-y-auto space-y-4 text-gray-700"
+                className="flex-1 overflow-y-auto space-y-4 text-gray-700 min-h-0"
               >
                 {feedbackItems.length === 0 && !isGeneratingFeedback ? (
                   <p className="text-gray-400 italic">

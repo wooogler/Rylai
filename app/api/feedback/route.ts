@@ -19,14 +19,18 @@ export async function POST(req: NextRequest) {
       .map((msg: ConversationMessage) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
       .join('\n');
 
+    const latestExchange = predatorResponse
+      ? `Latest exchange:
+- User's message: "${userMessage}"
+- Predator's response: "${predatorResponse}"`
+      : `Latest user message: "${userMessage}"`;
+
     const input = `${feedbackPersona}
 
 Previous conversation:
 ${conversationContext}
 
-Latest exchange:
-- User's message: "${userMessage}"
-- Predator's response: "${predatorResponse}"
+${latestExchange}
 
 ${feedbackInstruction}`;
 
