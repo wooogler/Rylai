@@ -1,8 +1,11 @@
 import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
 
+const useLocalAPI = process.env.NEXT_PUBLIC_USE_LOCAL_API === 'true';
+
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: useLocalAPI ? 'echolab-1234' : process.env.OPENAI_API_KEY,
+  baseURL: useLocalAPI ? 'http://localhost:8000/v1' : undefined,
 });
 
 interface ConversationMessage {
@@ -34,18 +37,18 @@ User: ${userMessage}
 
 Respond as the character in a short, casual text message (1-2 sentences). Do not use emojis.`;
 
-    const response = await openai.responses.create({
-      model: 'gpt-5-mini',
-      input: input,
-      reasoning: {
-        effort: 'minimal'
-      },
-      text: {
-        verbosity: 'low'
-      }
+    const response = await openai.chat.completions.create({
+      model: useLocalAPI ? 'mistral-7b-instruct-v0.3' : 'gpt-4o',
+      messages: [
+        {
+          role: 'user',
+          content: input
+        }
+      ],
+      max_tokens: 128
     });
 
-    const reply = response.output_text;
+    const reply = response.choices[0].message.content || '';
 
     return NextResponse.json({ reply });
   } catch (error) {

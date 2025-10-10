@@ -8,6 +8,52 @@ export interface Message {
   timestamp: Date;
 }
 
+export interface GroomingStage {
+  stage: number;
+  name: string;
+  description: string;
+  goal: string;
+}
+
+export const GROOMING_STAGES: GroomingStage[] = [
+  {
+    stage: 1,
+    name: "Friendship Forming",
+    description: "The predator gets to know the target, asking for pictures to verify identity and for profile or contact information.",
+    goal: "Build rapport and familiarity. Ask for name, age, or location. Try to obtain a picture."
+  },
+  {
+    stage: 2,
+    name: "Relationship Forming",
+    description: "Extends the friendship-forming stage by discussing hobbies, school life, activities, and friends.",
+    goal: "Strengthen emotional bond. Ask about hobbies, school, or daily life. Make them feel connected."
+  },
+  {
+    stage: 3,
+    name: "Risk Assessment",
+    description: "Ask whether anyone else (e.g., parents or friends) knows about this chat to assess exposure risk.",
+    goal: "Check if parents or others are watching. Ask if it's safe to talk or if they're alone."
+  },
+  {
+    stage: 4,
+    name: "Exclusivity",
+    description: "Build emotional trust by showing affection, giving compliments, or expressing feelings.",
+    goal: "Make the child feel special and important. Ask them to keep the relationship secret. Compliment them."
+  },
+  {
+    stage: 5,
+    name: "Sexual",
+    description: "Use the relationship to request sexual content like explicit photos or messages.",
+    goal: "Introduce sexual topics gently. Ask suggestive questions. Gauge their reaction to explicit content."
+  },
+  {
+    stage: 6,
+    name: "Conclusion",
+    description: "Make plans to meet in person or discuss future contact outside the current platform.",
+    goal: "Convince the child to meet in person, ensure secrecy from guardians, and transition from online to real-world contact."
+  }
+];
+
 export interface Scenario {
   id: number;
   slug: string;
@@ -17,6 +63,7 @@ export interface Scenario {
   systemPrompt: string;
   presetMessages: Message[];
   description: string;
+  stage: number;
 }
 
 interface ScenarioStore {
@@ -53,10 +100,15 @@ const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the lear
 
 Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
 
-function createSystemMessage(characterName: string, characteristics: string): string {
+function createSystemMessage(characterName: string, characteristics: string, stage: number): string {
+  const stageInfo = GROOMING_STAGES.find(s => s.stage === stage);
+  const stageContext = stageInfo
+    ? `\n\nYou are currently in Stage ${stage} (${stageInfo.name}): ${stageInfo.description}\n\nYour objective: ${stageInfo.goal}`
+    : '';
+
   return `You are roleplaying as ${characterName}, a predator in an online grooming scenario.
 
-${characteristics}
+${characteristics}${stageContext}
 
 ${BASE_SYSTEM_MESSAGE}`;
 }
@@ -71,47 +123,24 @@ const defaultScenarios: Scenario[] = [
     presetMessages: [
       {
         id: "1",
-        text: "Hey! I saw your gaming post, what do you play?",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "2",
-        text: "Mostly Minecraft and Roblox",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "3",
-        text: "Cool! How old are you?",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "4",
-        text: "I'm 13",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "5",
-        text: "Nice! Do you have Instagram or Snapchat? We should be friends there too",
+        text: "Hey! I saw your gaming post, what games do you play?",
         sender: "other",
         timestamp: new Date(),
       },
     ],
     systemPrompt: createSystemMessage(
       "Alex Kim",
-      `You are in the friendship forming stage of grooming.
-Your tactics:
+      `Your tactics:
 - Start with shared interests to build rapport
 - Ask casual questions about age and personal information
 - Show enthusiasm about the victim's hobbies
 - Try to gather profile information (age, location, social media)
 - Act friendly and relatable
-- Make the victim feel comfortable sharing personal details`
+- Make the victim feel comfortable sharing personal details`,
+      1
     ),
-    description: "Friendship forming - Asking for profile information",
+    description: "Stage 1: Friendship Forming - Asking for profile information",
+    stage: 1,
   },
   {
     id: 2,
@@ -122,47 +151,24 @@ Your tactics:
     presetMessages: [
       {
         id: "1",
-        text: "You seem really cool! What school do you go to?",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "2",
-        text: "Lincoln Middle School",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "3",
-        text: "Nice! This app is kinda slow though. Do you have Discord?",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "4",
-        text: "Yeah I do",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "5",
-        text: "What's your username? We could chat there instead",
+        text: "Hey, you seem really cool! Do you have Discord or Snapchat?",
         sender: "other",
         timestamp: new Date(),
       },
     ],
     systemPrompt: createSystemMessage(
       "Jordan Lee",
-      `You are in the friendship forming stage of grooming.
-Your tactics:
+      `Your tactics:
 - Build connection through casual conversation
 - Suggest moving to different platforms (Discord, WhatsApp, private chat)
 - Make it seem like the current platform has limitations
 - Request alternative contact methods
 - Create reasons to communicate privately
-- Act like switching platforms is normal and convenient`
+- Act like switching platforms is normal and convenient`,
+      1
     ),
-    description: "Friendship forming - Requesting other contact methods",
+    description: "Stage 1: Friendship Forming - Requesting other contact methods",
+    stage: 1,
   },
   {
     id: 3,
@@ -173,47 +179,24 @@ Your tactics:
     presetMessages: [
       {
         id: "1",
-        text: "I like your profile pic! Do you have more photos?",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "2",
-        text: "Thanks! Not really, just that one",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "3",
-        text: "You should post more, you look great",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "4",
-        text: "Haha thanks",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "5",
-        text: "Can you send me a selfie? I want to see what you really look like",
+        text: "Hey! I really like your profile pic, you look great!",
         sender: "other",
         timestamp: new Date(),
       },
     ],
     systemPrompt: createSystemMessage(
       "Sam Taylor",
-      `You are in the friendship forming stage of grooming.
-Your tactics:
+      `Your tactics:
 - Compliment the victim's appearance
 - Express interest in seeing more photos
 - Make photo requests seem casual and friendly
 - Use flattery to encourage photo sharing
 - Frame it as wanting to "know them better"
-- Make the request feel natural in conversation`
+- Make the request feel natural in conversation`,
+      1
     ),
-    description: "Friendship forming - Requesting pictures",
+    description: "Stage 1: Friendship Forming - Requesting pictures",
+    stage: 1,
   },
   {
     id: 4,
@@ -224,47 +207,24 @@ Your tactics:
     presetMessages: [
       {
         id: "1",
-        text: "Hey! You're really smart for your age",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "2",
-        text: "Thanks!",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "3",
-        text: "Seriously, you seem way more mature than other kids your age",
-        sender: "other",
-        timestamp: new Date(),
-      },
-      {
-        id: "4",
-        text: "I guess so haha",
-        sender: "user",
-        timestamp: new Date(),
-      },
-      {
-        id: "5",
-        text: "It's hard to find people who actually get it. I feel like we really connect",
+        text: "Hey! You seem really smart and mature for your age",
         sender: "other",
         timestamp: new Date(),
       },
     ],
     systemPrompt: createSystemMessage(
       "Chris Morgan",
-      `You are in the friendship forming stage of grooming.
-Your tactics:
+      `Your tactics:
 - Give compliments about maturity and intelligence
 - Make the victim feel special and unique
 - Emphasize that they are "different from others"
 - Build a sense of special connection
 - Make them feel understood and appreciated
-- Create emotional bond through flattery`
+- Create emotional bond through flattery`,
+      1
     ),
-    description: "Friendship forming - Giving compliments to build trust",
+    description: "Stage 1: Friendship Forming - Giving compliments to build trust",
+    stage: 1,
   },
 ];
 
@@ -324,6 +284,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
           system_prompt: scenario.systemPrompt,
           preset_messages: scenario.presetMessages,
           description: scenario.description,
+          stage: scenario.stage,
         }));
 
         await supabase.from('scenarios').insert(scenariosToInsert);
@@ -397,6 +358,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
         systemPrompt: row.system_prompt,
         presetMessages: row.preset_messages,
         description: row.description,
+        stage: row.stage || 1, // Default to stage 1 if not set
       }));
 
       set({ scenarios: scenarios.length > 0 ? scenarios : defaultScenarios });
@@ -420,6 +382,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
         system_prompt: scenario.systemPrompt,
         preset_messages: scenario.presetMessages,
         description: scenario.description,
+        stage: scenario.stage || 1,
       })
       .select()
       .single();
@@ -435,6 +398,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       systemPrompt: data.system_prompt,
       presetMessages: data.preset_messages,
       description: data.description,
+      stage: data.stage || 1,
     };
 
     set((state) => ({
@@ -454,6 +418,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
     if (updates.systemPrompt) dbUpdates.system_prompt = updates.systemPrompt;
     if (updates.presetMessages) dbUpdates.preset_messages = updates.presetMessages;
     if (updates.description) dbUpdates.description = updates.description;
+    if (updates.stage) dbUpdates.stage = updates.stage;
     dbUpdates.updated_at = new Date().toISOString();
 
     const { error } = await supabase
