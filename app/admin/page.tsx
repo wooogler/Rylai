@@ -398,6 +398,7 @@ export default function AdminPage() {
                         onChange={(e) => handleUpdateScenario(scenarioIndex, 'stage', parseInt(e.target.value))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                       >
+                        <option value={0}>Stage 0: Free Interaction</option>
                         <option value={1}>Stage 1: Friendship Forming</option>
                         <option value={2}>Stage 2: Relationship Forming</option>
                         <option value={3}>Stage 3: Risk Assessment</option>

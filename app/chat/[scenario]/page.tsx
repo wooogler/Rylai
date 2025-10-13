@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, GROOMING_STAGES } from "../../store/useScenarioStore";
@@ -201,6 +201,17 @@ export default function ChatPage() {
     }
   };
 
+  const handleReset = () => {
+    if (confirm("Are you sure you want to reset this conversation? All messages and feedback will be cleared.")) {
+      setMessages(scenarios[currentScenario].presetMessages);
+      setResponseText("");
+      setIsTyping(false);
+      setCurrentFeedback(null);
+      setFeedbackHistory([]);
+      setViewingHistoryIndex(null);
+    }
+  };
+
   const scenario = scenarios[currentScenario];
 
   return (
@@ -245,12 +256,21 @@ export default function ChatPage() {
             <div className="bg-white rounded-lg shadow w-full h-[700px] flex flex-col">
               {/* Chat Header */}
               <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
-                <div className="flex items-center space-x-3 mb-2">
-                  <Avatar seed={scenario.handle} size={40} />
-                  <div>
-                    <p className="font-semibold">{scenario.predatorName}</p>
-                    <p className="text-sm text-gray-500">{scenario.handle}</p>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center space-x-3">
+                    <Avatar seed={scenario.handle} size={40} />
+                    <div>
+                      <p className="font-semibold">{scenario.predatorName}</p>
+                      <p className="text-sm text-gray-500">{scenario.handle}</p>
+                    </div>
                   </div>
+                  <button
+                    onClick={handleReset}
+                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Reset conversation"
+                  >
+                    <RotateCcw className="w-5 h-5" />
+                  </button>
                 </div>
                 <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                   Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}

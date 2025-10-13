@@ -11,29 +11,29 @@ type ButtonState = "start" | "user" | "existing" | "new";
 
 export default function Home() {
   const [password, setPassword] = useState("");
-  const [isPasswordVerified, setIsPasswordVerified] = useState(false);
   const [passwordError, setPasswordError] = useState(false);
   const [username, setUsername] = useState("");
-  const [error, setError] = useState(false);
+  const [usernameError, setUsernameError] = useState(false);
   const [buttonState, setButtonState] = useState<ButtonState>("start");
   const [isChecking, setIsChecking] = useState(false);
   const router = useRouter();
   const { setCurrentUser, loadUserScenarios } = useScenarioStore();
 
   const handleStart = async () => {
-    // First check password
-    if (!isPasswordVerified) {
-      if (password !== PASSWORD) {
-        setPasswordError(true);
-        return;
-      }
-      setIsPasswordVerified(true);
-      setPasswordError(false);
+    // Check both password and username
+    let hasError = false;
+
+    if (password !== PASSWORD) {
+      setPasswordError(true);
+      hasError = true;
     }
 
-    // Then check username
     if (!username.trim()) {
-      setError(true);
+      setUsernameError(true);
+      hasError = true;
+    }
+
+    if (hasError) {
       return;
     }
 
@@ -69,7 +69,8 @@ export default function Home() {
 
   const handleCancel = () => {
     setButtonState("start");
-    setError(false);
+    setPasswordError(false);
+    setUsernameError(false);
   };
 
   const handleProceed = async () => {
@@ -85,7 +86,7 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Error:", err);
-      setError(true);
+      setUsernameError(true);
     }
   };
 
@@ -125,10 +126,10 @@ export default function Home() {
                 setPasswordError(false);
               }}
               placeholder="Enter password"
-              disabled={isPasswordVerified || buttonState !== "start"}
+              disabled={buttonState !== "start"}
               className={`px-6 py-3 border rounded-full text-center focus:outline-none focus:ring-2 focus:ring-purple-500 ${
                 passwordError ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
-              } ${isPasswordVerified || buttonState !== "start" ? "bg-gray-100" : ""}`}
+              } ${buttonState !== "start" ? "bg-gray-100" : ""}`}
             />
             {passwordError && (
               <p className="text-red-500 text-sm mt-2">Incorrect password</p>
@@ -140,15 +141,15 @@ export default function Home() {
               value={username}
               onChange={(e) => {
                 setUsername(e.target.value);
-                setError(false);
+                setUsernameError(false);
               }}
               placeholder="Enter your username"
-              disabled={!isPasswordVerified || buttonState !== "start"}
+              disabled={buttonState !== "start"}
               className={`px-6 py-3 border rounded-full text-center focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                error ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
-              } ${!isPasswordVerified || buttonState !== "start" ? "bg-gray-100" : ""}`}
+                usernameError ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
+              } ${buttonState !== "start" ? "bg-gray-100" : ""}`}
             />
-            {error && (
+            {usernameError && (
               <p className="text-red-500 text-sm mt-2">Please enter a username</p>
             )}
           </div>

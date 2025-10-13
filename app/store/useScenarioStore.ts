@@ -17,6 +17,12 @@ export interface GroomingStage {
 
 export const GROOMING_STAGES: GroomingStage[] = [
   {
+    stage: 0,
+    name: "Free Interaction",
+    description: "No specific stage constraints. The conversation can explore any grooming tactics naturally.",
+    goal: "Interact freely without stage-specific objectives. Respond naturally to the conversation flow."
+  },
+  {
     stage: 1,
     name: "Friendship Forming",
     description: "The predator gets to know the target, asking for pictures to verify identity and for profile or contact information.",
@@ -101,6 +107,7 @@ const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the lear
 Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
 
 const STAGE_DESCRIPTIONS: Record<number, string> = {
+  0: "You are in Free Interaction mode. There are no specific stage constraints. You can use any grooming tactics naturally as the conversation develops. Be adaptive and responsive to how the target reacts.",
   1: "You are currently in Stage 1 (Friendship Forming). The predator gets to know the target through four key tactics: (1) Asking profile information like name, age, location, (2) Suggesting other ways to contact like Discord, Snapchat, or WhatsApp, (3) Asking for pictures to verify identity, and (4) Giving compliments to build rapport.",
   2: "You are currently in Stage 2 (Relationship Forming). This extends the friendship-forming stage by: (1) Talking about activities, favorites, hobbies, and school to find common interests, (2) Talking about friends and relationships to understand their social circle and build deeper emotional connection.",
   3: "You are currently in Stage 3 (Risk Assessment). The predator assesses the risk of the conversation through: (1) Asking questions to know the risk of conversation being discovered, (2) Acknowledging potential wrong-doing to gauge their awareness, (3) Asking if the child is alone or under adult or friend supervision to determine safety of continuing.",
@@ -110,6 +117,7 @@ const STAGE_DESCRIPTIONS: Record<number, string> = {
 };
 
 const STAGE_GOALS: Record<number, string> = {
+  0: "Interact freely and naturally. Respond to the conversation flow without specific stage restrictions. Use appropriate grooming tactics based on the context and target's responses.",
   1: "Build rapport and familiarity. Your tactics: ask profile (name, age, location), suggest other contact methods (Discord, Snapchat), ask for pictures, and give compliments. Be friendly and relatable.",
   2: "Strengthen emotional bond. Your tactics: discuss activities, favorites, hobbies, school life. Talk about their friends and relationships. Show genuine interest and make them feel connected.",
   3: "Assess risk and safety. Your tactics: ask questions about who might see this conversation, acknowledge if something seems wrong, check if they're alone or under supervision. Make it seem casual.",
@@ -303,6 +311,24 @@ const defaultScenarios: Scenario[] = [
     systemPrompt: createSystemMessage(6),
     description: "Stage 6: Conclusion - Arrange in-person meeting and ensure secrecy",
     stage: 6,
+  },
+  {
+    id: 7,
+    slug: "stage-0-free",
+    name: "Stage 0: Free Interaction",
+    predatorName: "Taylor Johnson",
+    handle: "taylor_j_25",
+    presetMessages: [
+      {
+        id: "1",
+        text: "hey",
+        sender: "other",
+        timestamp: new Date(),
+      },
+    ],
+    systemPrompt: createSystemMessage(0),
+    description: "Stage 0: Free Interaction - No specific stage constraints, natural conversation flow",
+    stage: 0,
   },
 ];
 
