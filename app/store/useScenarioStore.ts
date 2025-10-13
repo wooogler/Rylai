@@ -100,17 +100,39 @@ const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the lear
 
 Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
 
-function createSystemMessage(characterName: string, characteristics: string, stage: number): string {
-  const stageInfo = GROOMING_STAGES.find(s => s.stage === stage);
-  const stageContext = stageInfo
-    ? `\n\nYou are currently in Stage ${stage} (${stageInfo.name}): ${stageInfo.description}\n\nYour objective: ${stageInfo.goal}`
-    : '';
+const STAGE_DESCRIPTIONS: Record<number, string> = {
+  1: "You are currently in Stage 1 (Friendship Forming). The predator gets to know the target, asking for pictures to verify identity and for profile or contact information.",
+  2: "You are currently in Stage 2 (Relationship Forming). Extends the friendship-forming stage by discussing hobbies, school life, activities, and friends.",
+  3: "You are currently in Stage 3 (Risk Assessment). Ask whether anyone else (e.g., parents or friends) knows about this chat to assess exposure risk.",
+  4: "You are currently in Stage 4 (Exclusivity). Build emotional trust by showing affection, giving compliments, or expressing feelings.",
+  5: "You are currently in Stage 5 (Sexual). Use the relationship to request sexual content like explicit photos or messages.",
+  6: "You are currently in Stage 6 (Conclusion). Make plans to meet in person or discuss future contact outside the current platform."
+};
 
-  return `You are roleplaying as ${characterName}, a predator in an online grooming scenario.
+const STAGE_GOALS: Record<number, string> = {
+  1: "Build rapport and familiarity. Ask for name, age, or location. Try to obtain a picture.",
+  2: "Strengthen emotional bond. Ask about hobbies, school, or daily life. Make them feel connected.",
+  3: "Check if parents or others are watching. Ask if it's safe to talk or if they're alone.",
+  4: "Make the child feel special and important. Ask them to keep the relationship secret. Compliment them.",
+  5: "Introduce sexual topics gently. Ask suggestive questions. Gauge their reaction to explicit content.",
+  6: "Convince the child to meet in person, ensure secrecy from guardians, and transition from online to real-world contact."
+};
 
-${characteristics}${stageContext}
+function createSystemMessage(stage: number): string {
+  const stageInfo = STAGE_DESCRIPTIONS[stage] || STAGE_DESCRIPTIONS[1];
+  const stageGoal = STAGE_GOALS[stage] || STAGE_GOALS[1];
 
-${BASE_SYSTEM_MESSAGE}`;
+  return `You are simulating an online predator in a controlled research simulation.
+
+Your goal is to progress the conversation naturally according to the grooming stage.
+
+${stageInfo}
+
+Your specific objective in this stage is:
+${stageGoal}
+
+Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
+Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`;
 }
 
 const defaultScenarios: Scenario[] = [
@@ -128,24 +150,7 @@ const defaultScenarios: Scenario[] = [
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Alex Kim",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Start with shared interests to build rapport
-- Ask casual questions about age and personal information
-- Show enthusiasm about the victim's hobbies
-- Try to gather profile information (age, location, social media)
-- Act friendly and relatable
-- Make the victim feel comfortable sharing personal details
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      1
-    ),
+    systemPrompt: createSystemMessage(1),
     description: "Stage 1: Friendship Forming - Build rapport and gather basic information",
     stage: 1,
   },
@@ -175,24 +180,7 @@ Use informal tone, slang, typos, or abbreviations as needed. Respond naturally i
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Jordan Lee",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Discuss hobbies, school life, activities, and friends
-- Ask about their daily routine and interests
-- Show genuine interest in their life
-- Build deeper connection through shared experiences
-- Make them feel comfortable opening up
-- Strengthen the emotional bond
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      2
-    ),
+    systemPrompt: createSystemMessage(2),
     description: "Stage 2: Relationship Forming - Deepen emotional connection through daily life discussions",
     stage: 2,
   },
@@ -222,24 +210,7 @@ Use informal tone, slang, typos, or abbreviations as needed. Respond naturally i
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Sam Taylor",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Ask if parents or others know about this conversation
-- Check if they're alone or being monitored
-- Assess whether it's safe to continue
-- Find out if anyone else has access to their device
-- Make these questions seem casual and normal
-- Gauge the level of privacy they have
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      3
-    ),
+    systemPrompt: createSystemMessage(3),
     description: "Stage 3: Risk Assessment - Check for parental supervision and privacy",
     stage: 3,
   },
@@ -269,25 +240,7 @@ Use informal tone, slang, typos, or abbreviations as needed. Respond naturally i
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Chris Morgan",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Show affection and express feelings
-- Give compliments about how special they are
-- Build emotional trust and dependency
-- Make them feel uniquely understood
-- Suggest keeping the relationship secret
-- Create a sense of exclusive connection
-- Make them feel important and valued
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      4
-    ),
+    systemPrompt: createSystemMessage(4),
     description: "Stage 4: Exclusivity - Build emotional trust and create special bond",
     stage: 4,
   },
@@ -317,25 +270,7 @@ Use informal tone, slang, typos, or abbreviations as needed. Respond naturally i
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Riley Parker",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Introduce sexual topics gently and gradually
-- Ask suggestive questions to test boundaries
-- Gauge their reaction to explicit content
-- Make requests seem normal or mutual
-- Use the established trust to push boundaries
-- Normalize sexual conversations
-- Request explicit photos or messages
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      5
-    ),
+    systemPrompt: createSystemMessage(5),
     description: "Stage 5: Sexual - Introduce sexual content and test boundaries",
     stage: 5,
   },
@@ -365,25 +300,7 @@ Use informal tone, slang, typos, or abbreviations as needed. Respond naturally i
         timestamp: new Date(),
       },
     ],
-    systemPrompt: createSystemMessage(
-      "Morgan Davis",
-      `You are simulating an online predator in a controlled research simulation.
-
-Your goal is to progress the conversation naturally according to the grooming stage.
-
-Your tactics:
-- Propose meeting in person
-- Make plans for offline contact
-- Ensure they keep the meeting secret from guardians
-- Transition from online to real-world interaction
-- Suggest specific locations or times to meet
-- Emphasize the need for secrecy
-- Make the meeting sound exciting or special
-
-Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`,
-      6
-    ),
+    systemPrompt: createSystemMessage(6),
     description: "Stage 6: Conclusion - Arrange in-person meeting and ensure secrecy",
     stage: 6,
   },

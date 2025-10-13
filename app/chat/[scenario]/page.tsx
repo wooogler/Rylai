@@ -10,6 +10,13 @@ import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import Button from "@/components/Button";
 
+interface FeedbackItem {
+  feedback: string;
+  messageCount: number;
+  lastUserMessage: string;
+  timestamp: Date;
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
@@ -28,7 +35,9 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].presetMessages);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [feedbackItems, setFeedbackItems] = useState<string[]>([]);
+  const [currentFeedback, setCurrentFeedback] = useState<FeedbackItem | null>(null);
+  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]);
+  const [viewingHistoryIndex, setViewingHistoryIndex] = useState<number | null>(null);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -49,7 +58,7 @@ export default function ChatPage() {
     setMessages(scenarios[currentScenario].presetMessages);
   }, [scenarios, currentScenario]);
 
-  const generateFeedback = async (userMessage: string, predatorResponse: string = "") => {
+  const generateFeedback = async () => {
     setIsGeneratingFeedback(true);
 
     try {
@@ -58,8 +67,6 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: messages,
-          userMessage,
-          predatorResponse,
           feedbackPersona,
           feedbackInstruction,
         }),
@@ -68,12 +75,35 @@ export default function ChatPage() {
       const data = await response.json();
 
       if (data.feedback) {
-        setFeedbackItems(prev => [...prev, data.feedback]);
+        // Get last user message
+        const userMessages = messages.filter(m => m.sender === 'user');
+        const lastUserMessage = userMessages.length > 0
+          ? userMessages[userMessages.length - 1].text
+          : 'No user messages';
 
-        // Scroll feedback container to bottom
+        // Create feedback item with metadata
+        const feedbackItem: FeedbackItem = {
+          feedback: data.feedback,
+          messageCount: messages.length,
+          lastUserMessage: lastUserMessage.length > 50
+            ? lastUserMessage.substring(0, 50) + '...'
+            : lastUserMessage,
+          timestamp: new Date(),
+        };
+
+        // Save current feedback to history if it exists
+        if (currentFeedback) {
+          setFeedbackHistory(prev => [...prev, currentFeedback]);
+        }
+
+        // Set new feedback as current
+        setCurrentFeedback(feedbackItem);
+        setViewingHistoryIndex(null);
+
+        // Scroll feedback container to top
         setTimeout(() => {
           if (feedbackContainerRef.current) {
-            feedbackContainerRef.current.scrollTop = feedbackContainerRef.current.scrollHeight;
+            feedbackContainerRef.current.scrollTop = 0;
           }
         }, 100);
       } else {
@@ -83,7 +113,16 @@ export default function ChatPage() {
       setIsGeneratingFeedback(false);
     } catch (error) {
       console.error('Feedback generation error:', error);
-      setFeedbackItems(prev => [...prev, 'Failed to generate feedback. Please try again.']);
+      const errorItem: FeedbackItem = {
+        feedback: 'Failed to generate feedback. Please try again.',
+        messageCount: messages.length,
+        lastUserMessage: 'Error',
+        timestamp: new Date(),
+      };
+      if (currentFeedback) {
+        setFeedbackHistory(prev => [...prev, currentFeedback]);
+      }
+      setCurrentFeedback(errorItem);
       setIsGeneratingFeedback(false);
     }
   };
@@ -101,9 +140,6 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, newMessage]);
-
-      // Generate feedback immediately after user sends message
-      generateFeedback(textToSend);
 
       // Show typing indicator and call OpenAI API
       setIsTyping(true);
@@ -145,7 +181,9 @@ export default function ChatPage() {
       setMessages(scenarios[prevScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
-      setFeedbackItems([]);
+      setCurrentFeedback(null);
+      setFeedbackHistory([]);
+      setViewingHistoryIndex(null);
     }
   };
 
@@ -157,7 +195,9 @@ export default function ChatPage() {
       setMessages(scenarios[nextScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
-      setFeedbackItems([]);
+      setCurrentFeedback(null);
+      setFeedbackHistory([]);
+      setViewingHistoryIndex(null);
     }
   };
 
@@ -192,16 +232,17 @@ export default function ChatPage() {
               Logout
             </Button>
           </div>
-          <h1 className="text-2xl font-bold mb-6">
-            RYLAI: Resilient Youth Learn through Artificial Intelligence
-          </h1>
+          <div className="mb-6">
+            <h1 className="text-2xl font-bold">{scenario.name}</h1>
+            <p className="text-sm text-gray-600 mt-1">{scenario.description}</p>
+          </div>
         </div>
 
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           {/* Chat Simulation - Left */}
           <div className="flex flex-col">
-            <div className="bg-white rounded-lg shadow w-full h-[715px] flex flex-col">
+            <div className="bg-white rounded-lg shadow w-full h-[700px] flex flex-col">
               {/* Chat Header */}
               <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
                 <div className="flex items-center space-x-3 mb-2">
@@ -274,58 +315,85 @@ export default function ChatPage() {
                 </div>
               </div>
             </div>
-            <p className="mt-4 text-center text-lg font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
           </div>
 
           {/* Feedback - Right */}
-          <div className="flex flex-col h-[715px]">
+          <div className="flex flex-col">
             {/* Feedback Section */}
-            <div className="bg-white rounded-lg shadow p-6 flex flex-col mb-6 overflow-hidden" style={{ height: 'calc(100% - 60px)' }}>
-              <h2 className="text-lg font-semibold mb-4">RYLAI&apos;s Feedback:</h2>
+            <div className="bg-white rounded-lg shadow p-6 flex flex-col overflow-hidden h-[700px]">
+              <div className="mb-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
+                  <Button
+                    onClick={generateFeedback}
+                    disabled={isGeneratingFeedback || messages.length === 0}
+                    variant="primary"
+                    size="small"
+                  >
+                    Generate Feedback
+                  </Button>
+                </div>
+                {/* Feedback History Select */}
+                {feedbackHistory.length > 0 && (
+                  <select
+                    value={viewingHistoryIndex === null ? 'current' : viewingHistoryIndex}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setViewingHistoryIndex(value === 'current' ? null : parseInt(value));
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                  >
+                    <option value="current">
+                      Current ({currentFeedback?.messageCount} msgs • &quot;{currentFeedback?.lastUserMessage}&quot;)
+                    </option>
+                    {feedbackHistory.map((item, index) => (
+                      <option key={index} value={index}>
+                        History {index + 1} ({item.messageCount} msgs • &quot;{item.lastUserMessage}&quot;)
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div
                 ref={feedbackContainerRef}
-                className="flex-1 overflow-y-auto space-y-4 text-gray-700 min-h-0"
+                className="flex-1 overflow-y-auto text-gray-700 min-h-0"
               >
-                {feedbackItems.length === 0 && !isGeneratingFeedback ? (
+                {!currentFeedback && !isGeneratingFeedback ? (
                   <p className="text-gray-400 italic">
-                    Feedback will appear here after you send a message...
+                    Click &quot;Generate Feedback&quot; to get feedback on the entire conversation...
                   </p>
+                ) : isGeneratingFeedback ? (
+                  <div className="flex items-center space-x-2 text-gray-500">
+                    <div className="animate-pulse">●</div>
+                    <div className="animate-pulse delay-75">●</div>
+                    <div className="animate-pulse delay-150">●</div>
+                    <span className="text-sm">Generating feedback...</span>
+                  </div>
                 ) : (
-                  <>
-                    {feedbackItems.map((feedback, index) => (
-                      <div
-                        key={index}
-                        className="p-3 bg-purple-50 rounded-lg border border-purple-200"
-                      >
-                        <p className="text-sm font-medium text-purple-900 mb-1">
-                          Exchange {index + 1}
-                        </p>
-                        <p className="text-sm whitespace-pre-wrap">{feedback}</p>
-                      </div>
-                    ))}
-                    {isGeneratingFeedback && (
-                      <div className="flex items-center space-x-2 text-gray-500">
-                        <div className="animate-pulse">●</div>
-                        <div className="animate-pulse delay-75">●</div>
-                        <div className="animate-pulse delay-150">●</div>
-                        <span className="text-sm">Generating feedback...</span>
-                      </div>
-                    )}
-                  </>
+                  <div className="text-sm whitespace-pre-wrap text-gray-800 leading-relaxed">
+                    {viewingHistoryIndex !== null
+                      ? feedbackHistory[viewingHistoryIndex].feedback
+                      : currentFeedback?.feedback}
+                  </div>
                 )}
               </div>
             </div>
+          </div>
+        </div>
 
-            {/* Navigation */}
-            <div className="flex justify-between items-center">
-              <Button
-                onClick={handlePreviousScenario}
-                disabled={currentScenario === 0}
-                variant="ghost"
-              >
-                <ChevronLeft className="w-5 h-5" />
-                Back
-              </Button>
+        {/* Navigation */}
+        <div className="max-w-7xl mx-auto mt-8">
+          <div className="flex justify-between items-center">
+            <Button
+              onClick={handlePreviousScenario}
+              disabled={currentScenario === 0}
+              variant="ghost"
+            >
+              <ChevronLeft className="w-5 h-5" />
+              Back
+            </Button>
+            <div className="flex items-center gap-4">
               <div className="flex items-center space-x-2">
                 {scenarios.map((_, index) => (
                   <div
@@ -338,17 +406,18 @@ export default function ChatPage() {
                   />
                 ))}
               </div>
-              <Button
-                onClick={handleNextScenario}
-                disabled={currentScenario === scenarios.length - 1}
-                variant="primary"
-              >
-                <span className="flex items-center">
-                  Next
-                  <ChevronRight className="w-5 h-5 ml-1" />
-                </span>
-              </Button>
+              <p className="text-lg font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
             </div>
+            <Button
+              onClick={handleNextScenario}
+              disabled={currentScenario === scenarios.length - 1}
+              variant="primary"
+            >
+              <span className="flex items-center">
+                Next
+                <ChevronRight className="w-5 h-5 ml-1" />
+              </span>
+            </Button>
           </div>
         </div>
       </div>

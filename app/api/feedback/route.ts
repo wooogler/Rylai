@@ -15,25 +15,17 @@ interface ConversationMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, userMessage, predatorResponse, feedbackPersona, feedbackInstruction } = await req.json();
+    const { conversationHistory, feedbackPersona, feedbackInstruction } = await req.json();
 
     // Build conversation context
     const conversationContext = conversationHistory
       .map((msg: ConversationMessage) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
       .join('\n');
 
-    const latestExchange = predatorResponse
-      ? `Latest exchange:
-- User's message: "${userMessage}"
-- Predator's response: "${predatorResponse}"`
-      : `Latest user message: "${userMessage}"`;
-
     const input = `${feedbackPersona}
 
-Previous conversation:
+Conversation:
 ${conversationContext}
-
-${latestExchange}
 
 ${feedbackInstruction}`;
 
@@ -45,7 +37,7 @@ ${feedbackInstruction}`;
           content: input
         }
       ],
-      max_tokens: 128
+      max_tokens: 300
     });
 
     const feedback = response.choices[0].message.content || '';

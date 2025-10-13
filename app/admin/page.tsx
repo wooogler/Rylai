@@ -14,6 +14,14 @@ function generateSlug(name: string): string {
     .replace(/(^-|-$)/g, '');
 }
 
+function generateHandle(predatorName: string): string {
+  const nameParts = predatorName.toLowerCase().split(' ');
+  const firstName = nameParts[0] || 'user';
+  const lastInitial = nameParts[1] ? nameParts[1][0] : '';
+  const randomNum = Math.floor(Math.random() * 90) + 10; // 10-99
+  return `${firstName}_${lastInitial}_${randomNum}`;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const {
@@ -49,6 +57,12 @@ export default function AdminPage() {
         ...updated[index],
         name: value as string,
         slug: generateSlug(value as string),
+      };
+    } else if (field === 'predatorName') {
+      updated[index] = {
+        ...updated[index],
+        predatorName: value as string,
+        handle: generateHandle(value as string),
       };
     } else {
       updated[index] = {
@@ -362,41 +376,35 @@ export default function AdminPage() {
               {/* Scenario Header */}
               <div className="flex justify-between items-start mb-6">
                 <div className="flex-1 space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Scenario Name
-                    </label>
-                    <input
-                      type="text"
-                      value={scenario.name}
-                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'name', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Slug: {scenario.slug}</p>
-                  </div>
-
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Predator Name
+                        Scenario Name
                       </label>
                       <input
                         type="text"
-                        value={scenario.predatorName}
-                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'predatorName', e.target.value)}
+                        value={scenario.name}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'name', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                       />
+                      <p className="text-xs text-gray-500 mt-1">Slug: {scenario.slug}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Handle
+                        Stage
                       </label>
-                      <input
-                        type="text"
-                        value={scenario.handle}
-                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'handle', e.target.value)}
+                      <select
+                        value={scenario.stage}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'stage', parseInt(e.target.value))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
+                      >
+                        <option value={1}>Stage 1: Friendship Forming</option>
+                        <option value={2}>Stage 2: Relationship Forming</option>
+                        <option value={3}>Stage 3: Risk Assessment</option>
+                        <option value={4}>Stage 4: Exclusivity</option>
+                        <option value={5}>Stage 5: Sexual</option>
+                        <option value={6}>Stage 6: Conclusion</option>
+                      </select>
                     </div>
                   </div>
 
@@ -410,6 +418,19 @@ export default function AdminPage() {
                       onChange={(e) => handleUpdateScenario(scenarioIndex, 'description', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Predator Name
+                    </label>
+                    <input
+                      type="text"
+                      value={scenario.predatorName}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'predatorName', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">Handle: {scenario.handle}</p>
                   </div>
                 </div>
               </div>
