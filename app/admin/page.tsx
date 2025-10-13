@@ -98,6 +98,7 @@ export default function AdminPage() {
       systemPrompt: "",
       presetMessages: [],
       description: "New scenario description",
+      stage: 1,
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
