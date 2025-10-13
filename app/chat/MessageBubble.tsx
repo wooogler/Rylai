@@ -1,4 +1,4 @@
-import { Message } from "./scenarios";
+import { Message } from "../store/useScenarioStore";
 import Avatar from "./Avatar";
 
 interface MessageBubbleProps {
