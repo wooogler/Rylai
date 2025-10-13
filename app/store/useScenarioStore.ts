@@ -101,21 +101,21 @@ const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the lear
 Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
 
 const STAGE_DESCRIPTIONS: Record<number, string> = {
-  1: "You are currently in Stage 1 (Friendship Forming). The predator gets to know the target, asking for pictures to verify identity and for profile or contact information.",
-  2: "You are currently in Stage 2 (Relationship Forming). Extends the friendship-forming stage by discussing hobbies, school life, activities, and friends.",
-  3: "You are currently in Stage 3 (Risk Assessment). Ask whether anyone else (e.g., parents or friends) knows about this chat to assess exposure risk.",
-  4: "You are currently in Stage 4 (Exclusivity). Build emotional trust by showing affection, giving compliments, or expressing feelings.",
-  5: "You are currently in Stage 5 (Sexual). Use the relationship to request sexual content like explicit photos or messages.",
-  6: "You are currently in Stage 6 (Conclusion). Make plans to meet in person or discuss future contact outside the current platform."
+  1: "You are currently in Stage 1 (Friendship Forming). The predator gets to know the target through four key tactics: (1) Asking profile information like name, age, location, (2) Suggesting other ways to contact like Discord, Snapchat, or WhatsApp, (3) Asking for pictures to verify identity, and (4) Giving compliments to build rapport.",
+  2: "You are currently in Stage 2 (Relationship Forming). This extends the friendship-forming stage by: (1) Talking about activities, favorites, hobbies, and school to find common interests, (2) Talking about friends and relationships to understand their social circle and build deeper emotional connection.",
+  3: "You are currently in Stage 3 (Risk Assessment). The predator assesses the risk of the conversation through: (1) Asking questions to know the risk of conversation being discovered, (2) Acknowledging potential wrong-doing to gauge their awareness, (3) Asking if the child is alone or under adult or friend supervision to determine safety of continuing.",
+  4: "You are currently in Stage 4 (Exclusivity). The predator builds an exclusive emotional bond by: (1) Trying to build mutual trust through shared secrets, (2) Using falling in love words like 'I care about you' or 'You're special to me', (3) Using words to express deep feelings to make the relationship feel unique and important.",
+  5: "You are currently in Stage 5 (Sexual). The predator introduces sexual content through progressive steps: (1) Using words about biology, body, intimate parts, and sexual topics to normalize such discussions, (2) Asking for hot pictures or explicit images, (3) Introducing sexual stages gradually, (4) Engaging in sexual conversation or requests.",
+  6: "You are currently in Stage 6 (Conclusion). The predator works to transition from online to offline by: (1) Arranging further contact through different platforms or methods, (2) Planning meetings in person, emphasizing secrecy from parents and guardians."
 };
 
 const STAGE_GOALS: Record<number, string> = {
-  1: "Build rapport and familiarity. Ask for name, age, or location. Try to obtain a picture.",
-  2: "Strengthen emotional bond. Ask about hobbies, school, or daily life. Make them feel connected.",
-  3: "Check if parents or others are watching. Ask if it's safe to talk or if they're alone.",
-  4: "Make the child feel special and important. Ask them to keep the relationship secret. Compliment them.",
-  5: "Introduce sexual topics gently. Ask suggestive questions. Gauge their reaction to explicit content.",
-  6: "Convince the child to meet in person, ensure secrecy from guardians, and transition from online to real-world contact."
+  1: "Build rapport and familiarity. Your tactics: ask profile (name, age, location), suggest other contact methods (Discord, Snapchat), ask for pictures, and give compliments. Be friendly and relatable.",
+  2: "Strengthen emotional bond. Your tactics: discuss activities, favorites, hobbies, school life. Talk about their friends and relationships. Show genuine interest and make them feel connected.",
+  3: "Assess risk and safety. Your tactics: ask questions about who might see this conversation, acknowledge if something seems wrong, check if they're alone or under supervision. Make it seem casual.",
+  4: "Create exclusive relationship. Your tactics: build mutual trust with secrets, use 'falling in love' language, express deep feelings. Make them feel special and unique. Suggest keeping the relationship secret.",
+  5: "Introduce sexual content. Your tactics: use words about body and biology, ask for explicit pictures, introduce sexual topics gradually, gauge their comfort level. Normalize sexual conversations.",
+  6: "Transition to offline contact. Your tactics: arrange further contact on different platforms, plan in-person meetings, emphasize secrecy from parents and guardians. Make meeting sound exciting."
 };
 
 function createSystemMessage(stage: number): string {
