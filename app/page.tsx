@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useScenarioStore } from "./store/useScenarioStore";
 import { supabase } from "@/lib/supabase";
+import Image from "next/image";
 
 const PASSWORD = "rylai2025";
 
@@ -82,7 +83,7 @@ export default function Home() {
       } else {
         await setCurrentUser(inputUsername);
         await loadUserScenarios();
-        router.push("/admin");
+        router.push("/chat/stage-1-friendship");
       }
     } catch (err) {
       console.error("Error:", err);
@@ -95,9 +96,9 @@ export default function Home() {
       case "user":
         return "Start Chatting";
       case "existing":
-        return "Edit Settings";
+        return "Login";
       case "new":
-        return "Create New Settings";
+        return "Create a chat";
       default:
         return "Start";
     }
@@ -106,9 +107,12 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
       <main className="text-center space-y-8 p-8 max-w-4xl">
-        <h1 className="text-5xl font-bold text-gray-900">
-          RYLAI
-        </h1>
+        <div className="flex flex-col items-center gap-4">
+          <Image src="/logo.svg" alt="RYLAI Logo" width={96} height={96} />
+          <h1 className="text-5xl font-bold text-gray-900">
+            RYLAI
+          </h1>
+        </div>
         <p className="text-xl text-gray-600">
           <span className="font-bold">R</span>esilient{" "}
           <span className="font-bold">Y</span>outh{" "}
@@ -116,20 +120,14 @@ export default function Home() {
           <span className="font-bold">A</span>rtificial{" "}
           <span className="font-bold">I</span>ntelligence
         </p>
+        <p className="text-lg text-gray-700 italic">
+          An educational intervention to teach teens how to be more resilient against cybergrooming.
+        </p>
 
         <div className="bg-white rounded-lg shadow-lg p-6 text-left space-y-4">
-          <h2 className="text-2xl font-bold text-purple-700 text-center">
-            Interactive Training Platform
-          </h2>
-          <p className="text-gray-700 leading-relaxed">
-            RYLAI is an AI-powered educational platform designed to help youth recognize and respond to online grooming tactics.
-            Through realistic conversation simulations, learners can practice identifying red flags and developing safe online communication skills.
-          </p>
-
-          <div className="border-t pt-4">
+          <div>
             <h3 className="font-semibold text-gray-900 mb-2">Features:</h3>
             <ul className="text-gray-700 space-y-2 list-disc list-inside">
-              <li>7 scenarios covering different stages of grooming tactics</li>
               <li>Real-time AI-powered predator simulation</li>
               <li>Personalized feedback on conversation responses</li>
               <li>Safe, controlled learning environment</li>

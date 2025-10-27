@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, GROOMING_STAGES } from "../../store/useScenarioStore";
@@ -241,9 +241,12 @@ export default function ChatPage() {
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
             {isAdmin ? (
-              <Link href="/admin" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-                <ArrowLeft className="w-5 h-5 mr-2" />
-                Back to Admin
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-2 text-purple-600 hover:text-purple-800 font-bold transition-colors"
+              >
+                <Settings className="w-5 h-5" />
+                Settings
               </Link>
             ) : (
               <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
@@ -394,16 +397,16 @@ export default function ChatPage() {
                   <div className="text-sm text-gray-800 leading-relaxed">
                     <ReactMarkdown
                       components={{
-                        h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
-                        h2: ({node, ...props}) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
-                        h3: ({node, ...props}) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
-                        p: ({node, ...props}) => <p className="mb-3 text-gray-800" {...props} />,
-                        ul: ({node, ...props}) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                        ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                        li: ({node, ...props}) => <li className="text-gray-800" {...props} />,
-                        strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
-                        em: ({node, ...props}) => <em className="italic text-gray-800" {...props} />,
-                        code: ({node, ...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
+                        h1: (props) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
+                        h2: (props) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
+                        h3: (props) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
+                        p: (props) => <p className="mb-3 text-gray-800" {...props} />,
+                        ul: (props) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                        ol: (props) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                        li: (props) => <li className="text-gray-800" {...props} />,
+                        strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
+                        em: (props) => <em className="italic text-gray-800" {...props} />,
+                        code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
                       }}
                     >
                       {currentFeedback?.feedback || ''}

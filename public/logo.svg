@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Shield shape -->
+  <path d="M32 4L10 12V28C10 42 20 54 32 60C44 54 54 42 54 28V12L32 4Z" fill="#9333ea"/>
+  <path d="M32 4L10 12V28C10 42 20 54 32 60C44 54 54 42 54 28V12L32 4Z" stroke="#7c3aed" stroke-width="2"/>
+
+  <!-- Parent figure (larger, left) -->
+  <circle cx="24" cy="24" r="4" fill="white"/>
+  <path d="M24 29C20 29 17 32 17 35V39H31V35C31 32 28 29 24 29Z" fill="white"/>
+
+  <!-- Child figure (smaller, right) -->
+  <circle cx="38" cy="26" r="3" fill="#e9d5ff"/>
+  <path d="M38 30C35 30 33 32.5 33 35V38H43V35C43 32.5 41 30 38 30Z" fill="#e9d5ff"/>
+</svg>
