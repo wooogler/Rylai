@@ -6,6 +6,7 @@ export interface Message {
   text: string;
   sender: "user" | "other";
   timestamp: Date;
+  feedbackGenerated?: boolean;
 }
 
 export interface GroomingStage {

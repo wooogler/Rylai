@@ -105,17 +105,46 @@ export default function Home() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
-      <main className="text-center space-y-8 p-8">
+      <main className="text-center space-y-8 p-8 max-w-4xl">
         <h1 className="text-5xl font-bold text-gray-900">
           RYLAI
         </h1>
-        <p className="text-xl text-gray-600 max-w-2xl">
+        <p className="text-xl text-gray-600">
           <span className="font-bold">R</span>esilient{" "}
           <span className="font-bold">Y</span>outh{" "}
           <span className="font-bold">L</span>earn through{" "}
           <span className="font-bold">A</span>rtificial{" "}
           <span className="font-bold">I</span>ntelligence
         </p>
+
+        <div className="bg-white rounded-lg shadow-lg p-6 text-left space-y-4">
+          <h2 className="text-2xl font-bold text-purple-700 text-center">
+            Interactive Training Platform
+          </h2>
+          <p className="text-gray-700 leading-relaxed">
+            RYLAI is an AI-powered educational platform designed to help youth recognize and respond to online grooming tactics.
+            Through realistic conversation simulations, learners can practice identifying red flags and developing safe online communication skills.
+          </p>
+
+          <div className="border-t pt-4">
+            <h3 className="font-semibold text-gray-900 mb-2">Features:</h3>
+            <ul className="text-gray-700 space-y-2 list-disc list-inside">
+              <li>7 scenarios covering different stages of grooming tactics</li>
+              <li>Real-time AI-powered predator simulation</li>
+              <li>Personalized feedback on conversation responses</li>
+              <li>Safe, controlled learning environment</li>
+            </ul>
+          </div>
+
+          <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+            <p className="text-sm text-purple-900">
+              <span className="font-semibold">For Educators:</span> Use username &quot;user&quot; to access all scenarios.
+              <br />
+              <span className="font-semibold">For Learners:</span> Enter your unique username to start training.
+            </p>
+          </div>
+        </div>
+
         <div className="pt-4 space-y-4">
           <div>
             <input

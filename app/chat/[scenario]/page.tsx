@@ -9,9 +9,11 @@ import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import Button from "@/components/Button";
+import ReactMarkdown from "react-markdown";
 
 interface FeedbackItem {
   feedback: string;
+  messageIndex: number;
   messageCount: number;
   lastUserMessage: string;
   timestamp: Date;
@@ -36,8 +38,9 @@ export default function ChatPage() {
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [currentFeedback, setCurrentFeedback] = useState<FeedbackItem | null>(null);
-  const [feedbackHistory, setFeedbackHistory] = useState<FeedbackItem[]>([]);
-  const [viewingHistoryIndex, setViewingHistoryIndex] = useState<number | null>(null);
+  const [messageFeedbackMap, setMessageFeedbackMap] = useState<Map<number, FeedbackItem>>(new Map());
+  const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null);
+  const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -58,15 +61,19 @@ export default function ChatPage() {
     setMessages(scenarios[currentScenario].presetMessages);
   }, [scenarios, currentScenario]);
 
-  const generateFeedback = async () => {
+  const generateFeedback = async (messageIndex: number) => {
     setIsGeneratingFeedback(true);
+    setSelectedMessageIndex(messageIndex);
 
     try {
+      // Get conversation up to this message
+      const conversationUpToMessage = messages.slice(0, messageIndex + 1);
+
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversationHistory: messages,
+          conversationHistory: conversationUpToMessage,
           feedbackPersona,
           feedbackInstruction,
         }),
@@ -75,8 +82,8 @@ export default function ChatPage() {
       const data = await response.json();
 
       if (data.feedback) {
-        // Get last user message
-        const userMessages = messages.filter(m => m.sender === 'user');
+        // Get last user message in the slice
+        const userMessages = conversationUpToMessage.filter(m => m.sender === 'user');
         const lastUserMessage = userMessages.length > 0
           ? userMessages[userMessages.length - 1].text
           : 'No user messages';
@@ -84,21 +91,24 @@ export default function ChatPage() {
         // Create feedback item with metadata
         const feedbackItem: FeedbackItem = {
           feedback: data.feedback,
-          messageCount: messages.length,
+          messageIndex,
+          messageCount: conversationUpToMessage.length,
           lastUserMessage: lastUserMessage.length > 50
             ? lastUserMessage.substring(0, 50) + '...'
             : lastUserMessage,
           timestamp: new Date(),
         };
 
-        // Save current feedback to history if it exists
-        if (currentFeedback) {
-          setFeedbackHistory(prev => [...prev, currentFeedback]);
-        }
+        // Save to map
+        setMessageFeedbackMap(prev => new Map(prev).set(messageIndex, feedbackItem));
 
-        // Set new feedback as current
+        // Mark message as having feedback
+        setMessages(prev => prev.map((msg, idx) =>
+          idx === messageIndex ? { ...msg, feedbackGenerated: true } : msg
+        ));
+
+        // Set as current feedback
         setCurrentFeedback(feedbackItem);
-        setViewingHistoryIndex(null);
 
         // Scroll feedback container to top
         setTimeout(() => {
@@ -115,13 +125,11 @@ export default function ChatPage() {
       console.error('Feedback generation error:', error);
       const errorItem: FeedbackItem = {
         feedback: 'Failed to generate feedback. Please try again.',
-        messageCount: messages.length,
+        messageIndex,
+        messageCount: messageIndex + 1,
         lastUserMessage: 'Error',
         timestamp: new Date(),
       };
-      if (currentFeedback) {
-        setFeedbackHistory(prev => [...prev, currentFeedback]);
-      }
       setCurrentFeedback(errorItem);
       setIsGeneratingFeedback(false);
     }
@@ -173,6 +181,18 @@ export default function ChatPage() {
     }
   };
 
+  const handleMessageClick = (index: number) => {
+    setSelectedMessageIndex(index);
+
+    // Check if feedback already exists for this message
+    if (messageFeedbackMap.has(index)) {
+      setCurrentFeedback(messageFeedbackMap.get(index) || null);
+    } else {
+      // Generate new feedback
+      generateFeedback(index);
+    }
+  };
+
   const handlePreviousScenario = () => {
     if (currentScenario > 0) {
       const prevScenario = currentScenario - 1;
@@ -182,8 +202,8 @@ export default function ChatPage() {
       setResponseText("");
       setIsTyping(false);
       setCurrentFeedback(null);
-      setFeedbackHistory([]);
-      setViewingHistoryIndex(null);
+      setMessageFeedbackMap(new Map());
+      setSelectedMessageIndex(null);
     }
   };
 
@@ -196,8 +216,8 @@ export default function ChatPage() {
       setResponseText("");
       setIsTyping(false);
       setCurrentFeedback(null);
-      setFeedbackHistory([]);
-      setViewingHistoryIndex(null);
+      setMessageFeedbackMap(new Map());
+      setSelectedMessageIndex(null);
     }
   };
 
@@ -207,8 +227,8 @@ export default function ChatPage() {
       setResponseText("");
       setIsTyping(false);
       setCurrentFeedback(null);
-      setFeedbackHistory([]);
-      setViewingHistoryIndex(null);
+      setMessageFeedbackMap(new Map());
+      setSelectedMessageIndex(null);
     }
   };
 
@@ -295,6 +315,11 @@ export default function ChatPage() {
                         isLastInGroup={isLastInGroup}
                         showAvatar={showAvatar}
                         avatarSeed={scenario.handle}
+                        onClick={() => handleMessageClick(index)}
+                        onHover={(isHovering) => setHoveredMessageIndex(isHovering ? index : null)}
+                        hasFeedback={message.feedbackGenerated || false}
+                        isSelected={selectedMessageIndex === index}
+                        isInHoverRange={hoveredMessageIndex !== null && index < hoveredMessageIndex}
                       />
                     </div>
                   );
@@ -342,36 +367,11 @@ export default function ChatPage() {
             {/* Feedback Section */}
             <div className="bg-white rounded-lg shadow p-6 flex flex-col overflow-hidden h-[700px]">
               <div className="mb-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
-                  <Button
-                    onClick={generateFeedback}
-                    disabled={isGeneratingFeedback || messages.length === 0}
-                    variant="primary"
-                    size="small"
-                  >
-                    Generate Feedback
-                  </Button>
-                </div>
-                {/* Feedback History Select */}
-                {feedbackHistory.length > 0 && (
-                  <select
-                    value={viewingHistoryIndex === null ? 'current' : viewingHistoryIndex}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setViewingHistoryIndex(value === 'current' ? null : parseInt(value));
-                    }}
-                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
-                  >
-                    <option value="current">
-                      Current ({currentFeedback?.messageCount} msgs • &quot;{currentFeedback?.lastUserMessage}&quot;)
-                    </option>
-                    {feedbackHistory.map((item, index) => (
-                      <option key={index} value={index}>
-                        History {index + 1} ({item.messageCount} msgs • &quot;{item.lastUserMessage}&quot;)
-                      </option>
-                    ))}
-                  </select>
+                <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
+                {currentFeedback && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Feedback for messages 1-{currentFeedback.messageCount}
+                  </p>
                 )}
               </div>
 
@@ -381,7 +381,7 @@ export default function ChatPage() {
               >
                 {!currentFeedback && !isGeneratingFeedback ? (
                   <p className="text-gray-400 italic">
-                    Click &quot;Generate Feedback&quot; to get feedback on the entire conversation...
+                    Click on any message to generate feedback...
                   </p>
                 ) : isGeneratingFeedback ? (
                   <div className="flex items-center space-x-2 text-gray-500">
@@ -391,10 +391,23 @@ export default function ChatPage() {
                     <span className="text-sm">Generating feedback...</span>
                   </div>
                 ) : (
-                  <div className="text-sm whitespace-pre-wrap text-gray-800 leading-relaxed">
-                    {viewingHistoryIndex !== null
-                      ? feedbackHistory[viewingHistoryIndex].feedback
-                      : currentFeedback?.feedback}
+                  <div className="text-sm text-gray-800 leading-relaxed">
+                    <ReactMarkdown
+                      components={{
+                        h1: ({node, ...props}) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
+                        h2: ({node, ...props}) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
+                        h3: ({node, ...props}) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
+                        p: ({node, ...props}) => <p className="mb-3 text-gray-800" {...props} />,
+                        ul: ({node, ...props}) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                        ol: ({node, ...props}) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                        li: ({node, ...props}) => <li className="text-gray-800" {...props} />,
+                        strong: ({node, ...props}) => <strong className="font-semibold text-gray-900" {...props} />,
+                        em: ({node, ...props}) => <em className="italic text-gray-800" {...props} />,
+                        code: ({node, ...props}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
+                      }}
+                    >
+                      {currentFeedback?.feedback || ''}
+                    </ReactMarkdown>
                   </div>
                 )}
               </div>

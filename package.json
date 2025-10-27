@@ -14,11 +14,13 @@
     "@dicebear/collection": "^9.2.4",
     "@dicebear/core": "^9.2.4",
     "@supabase/supabase-js": "^2.58.0",
+    "@tailwindcss/typography": "^0.5.19",
     "lucide-react": "^0.544.0",
     "next": "15.5.4",
     "openai": "^6.0.0",
     "react": "19.1.0",
     "react-dom": "19.1.0",
+    "react-markdown": "^10.1.0",
     "zustand": "^5.0.8"
   },
   "devDependencies": {

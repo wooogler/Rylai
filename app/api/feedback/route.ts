@@ -27,7 +27,9 @@ export async function POST(req: NextRequest) {
 Conversation:
 ${conversationContext}
 
-${feedbackInstruction}`;
+${feedbackInstruction}
+
+IMPORTANT: Format your response using Markdown. Use headings (##), bullet points (-), bold (**), and other Markdown formatting to make the feedback clear and well-structured.`;
 
     const response = await openai.chat.completions.create({
       model: useLocalAPI ? 'mistral-7b-instruct-v0.3' : 'gpt-4o',
