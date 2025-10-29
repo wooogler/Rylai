@@ -73,9 +73,17 @@ export interface Scenario {
   stage: number;
 }
 
+export interface ScenarioProgress {
+  scenarioId: number;
+  firstVisitedAt: Date;
+  lastVisitedAt: Date;
+  visitCount: number;
+}
+
 interface ScenarioStore {
   currentUser: string | null;
   userId: string | null;
+  userType: 'admin' | 'user' | null;
   scenarios: Scenario[];
   commonSystemPrompt: string;
   feedbackPersona: string;
@@ -83,7 +91,8 @@ interface ScenarioStore {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  setCurrentUser: (username: string, asAdmin?: boolean) => Promise<void>;
+  adminUserId: string | null; // For user type: which admin's scenarios to use
+  setCurrentUser: (username: string, userType: 'admin' | 'user') => Promise<void>;
   loadUserScenarios: () => Promise<void>;
   setCommonSystemPrompt: (prompt: string) => Promise<void>;
   setFeedbackPrompts: (persona: string, instruction: string) => Promise<void>;
@@ -91,6 +100,13 @@ interface ScenarioStore {
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
   getScenarioBySlug: (slug: string) => Scenario | undefined;
+  saveUserMessage: (scenarioId: number, message: Message) => Promise<void>;
+  saveUserFeedback: (scenarioId: number, messageId: string, feedbackText: string) => Promise<void>;
+  loadUserMessages: (scenarioId: number) => Promise<Message[]>;
+  loadUserFeedbacks: (scenarioId: number) => Promise<Map<string, string>>;
+  recordScenarioVisit: (scenarioId: number) => Promise<void>;
+  loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
+  resetScenarioProgress: (scenarioId: number) => Promise<void>;
   logout: () => void;
 }
 
@@ -336,6 +352,8 @@ const defaultScenarios: Scenario[] = [
 export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   currentUser: null,
   userId: null,
+  userType: null,
+  adminUserId: null,
   scenarios: defaultScenarios,
   commonSystemPrompt: BASE_SYSTEM_MESSAGE,
   feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
@@ -344,64 +362,126 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   isAuthenticated: false,
   isAdmin: false,
 
-  setCurrentUser: async (username: string, asAdmin: boolean = true) => {
+  setCurrentUser: async (username: string, userType: 'admin' | 'user' = 'user') => {
     set({ isLoading: true });
     try {
-      // Check if user exists
-      const { data: existingUser } = await supabase
-        .from('users')
-        .select('id, common_system_prompt, feedback_persona, feedback_instruction')
-        .eq('username', username)
-        .single();
-
-      if (existingUser) {
-        set({
-          currentUser: username,
-          userId: existingUser.id,
-          commonSystemPrompt: existingUser.common_system_prompt,
-          feedbackPersona: existingUser.feedback_persona,
-          feedbackInstruction: existingUser.feedback_instruction,
-          isAuthenticated: true,
-          isAdmin: asAdmin
-        });
-      } else {
-        // Create new user
-        const { data: newUser, error } = await supabase
+      if (userType === 'admin') {
+        // Admin flow: same as before
+        const { data: existingUser } = await supabase
           .from('users')
-          .insert({
-            username,
-            common_system_prompt: BASE_SYSTEM_MESSAGE,
-            feedback_persona: DEFAULT_FEEDBACK_PERSONA,
-            feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
-          })
-          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
+          .select('id, common_system_prompt, feedback_persona, feedback_instruction, user_type')
+          .eq('username', username)
           .single();
 
-        if (error) throw error;
+        if (existingUser) {
+          set({
+            currentUser: username,
+            userId: existingUser.id,
+            userType: 'admin',
+            commonSystemPrompt: existingUser.common_system_prompt,
+            feedbackPersona: existingUser.feedback_persona,
+            feedbackInstruction: existingUser.feedback_instruction,
+            isAuthenticated: true,
+            isAdmin: true,
+            adminUserId: null
+          });
+        } else {
+          // Create new admin user
+          const { data: newUser, error } = await supabase
+            .from('users')
+            .insert({
+              username,
+              user_type: 'admin',
+              common_system_prompt: BASE_SYSTEM_MESSAGE,
+              feedback_persona: DEFAULT_FEEDBACK_PERSONA,
+              feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
+            })
+            .select('id, common_system_prompt, feedback_persona, feedback_instruction')
+            .single();
 
-        // Initialize with default scenarios
-        const scenariosToInsert = defaultScenarios.map(scenario => ({
-          user_id: newUser.id,
-          slug: scenario.slug,
-          name: scenario.name,
-          predator_name: scenario.predatorName,
-          handle: scenario.handle,
-          system_prompt: scenario.systemPrompt,
-          preset_messages: scenario.presetMessages,
-          description: scenario.description,
-          stage: scenario.stage,
-        }));
+          if (error) throw error;
 
-        await supabase.from('scenarios').insert(scenariosToInsert);
+          // Initialize with default scenarios
+          const scenariosToInsert = defaultScenarios.map(scenario => ({
+            user_id: newUser.id,
+            slug: scenario.slug,
+            name: scenario.name,
+            predator_name: scenario.predatorName,
+            handle: scenario.handle,
+            system_prompt: scenario.systemPrompt,
+            preset_messages: scenario.presetMessages,
+            description: scenario.description,
+            stage: scenario.stage,
+          }));
+
+          await supabase.from('scenarios').insert(scenariosToInsert);
+
+          set({
+            currentUser: username,
+            userId: newUser.id,
+            userType: 'admin',
+            commonSystemPrompt: newUser.common_system_prompt,
+            feedbackPersona: newUser.feedback_persona,
+            feedbackInstruction: newUser.feedback_instruction,
+            isAuthenticated: true,
+            isAdmin: true,
+            adminUserId: null
+          });
+        }
+      } else {
+        // User (learner) flow
+        // First, find or create the learner account
+        const { data: existingUser } = await supabase
+          .from('users')
+          .select('id')
+          .eq('username', username)
+          .single();
+
+        let learnerId: string;
+
+        if (existingUser) {
+          learnerId = existingUser.id;
+        } else {
+          // Create new learner user
+          const { data: newUser, error } = await supabase
+            .from('users')
+            .insert({
+              username,
+              user_type: 'user',
+              common_system_prompt: BASE_SYSTEM_MESSAGE,
+              feedback_persona: DEFAULT_FEEDBACK_PERSONA,
+              feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
+            })
+            .select('id')
+            .single();
+
+          if (error) throw error;
+          learnerId = newUser.id;
+        }
+
+        // Find a default admin to use their scenarios
+        // TODO: Make this configurable - for now, use first admin user
+        const { data: adminUser } = await supabase
+          .from('users')
+          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
+          .eq('user_type', 'admin')
+          .limit(1)
+          .single();
+
+        if (!adminUser) {
+          throw new Error('No admin user found. Please create an admin account first.');
+        }
 
         set({
           currentUser: username,
-          userId: newUser.id,
-          commonSystemPrompt: newUser.common_system_prompt,
-          feedbackPersona: newUser.feedback_persona,
-          feedbackInstruction: newUser.feedback_instruction,
+          userId: learnerId,
+          userType: 'user',
+          adminUserId: adminUser.id,
+          commonSystemPrompt: adminUser.common_system_prompt,
+          feedbackPersona: adminUser.feedback_persona,
+          feedbackInstruction: adminUser.feedback_instruction,
           isAuthenticated: true,
-          isAdmin: asAdmin
+          isAdmin: false
         });
       }
     } finally {
@@ -441,15 +521,23 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   },
 
   loadUserScenarios: async () => {
-    const { userId } = get();
+    const { userId, userType, adminUserId } = get();
     if (!userId) return;
 
     set({ isLoading: true });
     try {
+      // For user type, load admin's scenarios
+      // For admin type, load own scenarios
+      const targetUserId = userType === 'user' ? adminUserId : userId;
+
+      if (!targetUserId) {
+        throw new Error('No target user ID found');
+      }
+
       const { data, error } = await supabase
         .from('scenarios')
         .select('*')
-        .eq('user_id', userId)
+        .eq('user_id', targetUserId)
         .order('id', { ascending: true });
 
       if (error) throw error;
@@ -562,7 +650,227 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
     return get().scenarios.find((scenario) => scenario.slug === slug);
   },
 
+  saveUserMessage: async (scenarioId: number, message: Message) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return;
+
+    // Check if message already exists to avoid duplicates
+    const { data: existingMessage } = await supabase
+      .from('user_messages')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('scenario_id', scenarioId)
+      .eq('message_id', message.id)
+      .single();
+
+    if (existingMessage) {
+      // Message already exists, skip saving
+      return;
+    }
+
+    const timestamp = message.timestamp instanceof Date
+      ? message.timestamp.toISOString()
+      : new Date(message.timestamp).toISOString();
+
+    const { error } = await supabase
+      .from('user_messages')
+      .insert({
+        user_id: userId,
+        scenario_id: scenarioId,
+        message_id: message.id,
+        text: message.text,
+        sender: message.sender,
+        timestamp: timestamp
+      });
+
+    if (error) {
+      console.error('Error saving user message:', error);
+      throw error;
+    }
+  },
+
+  saveUserFeedback: async (scenarioId: number, messageId: string, feedbackText: string) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return;
+
+    const { error } = await supabase
+      .from('user_feedbacks')
+      .insert({
+        user_id: userId,
+        scenario_id: scenarioId,
+        message_id: messageId,
+        feedback_text: feedbackText
+      });
+
+    if (error) {
+      console.error('Error saving user feedback:', error);
+      throw error;
+    }
+  },
+
+  loadUserMessages: async (scenarioId: number) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return [];
+
+    const { data, error } = await supabase
+      .from('user_messages')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('scenario_id', scenarioId)
+      .order('timestamp', { ascending: true });
+
+    if (error) {
+      console.error('Error loading user messages:', error);
+      return [];
+    }
+
+    return (data || []).map(row => ({
+      id: row.message_id,
+      text: row.text,
+      sender: row.sender as "user" | "other",
+      timestamp: new Date(row.timestamp),
+      feedbackGenerated: false
+    }));
+  },
+
+  loadUserFeedbacks: async (scenarioId: number) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return new Map();
+
+    const { data, error } = await supabase
+      .from('user_feedbacks')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('scenario_id', scenarioId);
+
+    if (error) {
+      console.error('Error loading user feedbacks:', error);
+      return new Map();
+    }
+
+    const feedbackMap = new Map<string, string>();
+    (data || []).forEach(row => {
+      feedbackMap.set(row.message_id, row.feedback_text);
+    });
+
+    return feedbackMap;
+  },
+
+  recordScenarioVisit: async (scenarioId: number) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return;
+
+    try {
+      // Try to update existing record
+      const { data: existing } = await supabase
+        .from('scenario_progress')
+        .select('visit_count')
+        .eq('user_id', userId)
+        .eq('scenario_id', scenarioId)
+        .single();
+
+      if (existing) {
+        // Update existing record
+        await supabase
+          .from('scenario_progress')
+          .update({
+            last_visited_at: new Date().toISOString(),
+            visit_count: existing.visit_count + 1
+          })
+          .eq('user_id', userId)
+          .eq('scenario_id', scenarioId);
+      } else {
+        // Create new record
+        await supabase
+          .from('scenario_progress')
+          .insert({
+            user_id: userId,
+            scenario_id: scenarioId,
+            first_visited_at: new Date().toISOString(),
+            last_visited_at: new Date().toISOString(),
+            visit_count: 1
+          });
+      }
+    } catch (error) {
+      console.error('Error recording scenario visit:', error);
+    }
+  },
+
+  loadScenarioProgress: async () => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return new Map();
+
+    const { data, error } = await supabase
+      .from('scenario_progress')
+      .select('*')
+      .eq('user_id', userId);
+
+    if (error) {
+      console.error('Error loading scenario progress:', error);
+      return new Map();
+    }
+
+    const progressMap = new Map<number, ScenarioProgress>();
+    (data || []).forEach(row => {
+      progressMap.set(row.scenario_id, {
+        scenarioId: row.scenario_id,
+        firstVisitedAt: new Date(row.first_visited_at),
+        lastVisitedAt: new Date(row.last_visited_at),
+        visitCount: row.visit_count
+      });
+    });
+
+    return progressMap;
+  },
+
+  resetScenarioProgress: async (scenarioId: number) => {
+    const { userId, userType } = get();
+    if (!userId || userType !== 'user') return;
+
+    try {
+      // Delete all messages for this scenario
+      const { error: messagesError } = await supabase
+        .from('user_messages')
+        .delete()
+        .eq('user_id', userId)
+        .eq('scenario_id', scenarioId);
+
+      if (messagesError) throw messagesError;
+
+      // Delete all feedbacks for this scenario
+      const { error: feedbacksError } = await supabase
+        .from('user_feedbacks')
+        .delete()
+        .eq('user_id', userId)
+        .eq('scenario_id', scenarioId);
+
+      if (feedbacksError) throw feedbacksError;
+
+      // Delete progress record for this scenario
+      const { error: progressError } = await supabase
+        .from('scenario_progress')
+        .delete()
+        .eq('user_id', userId)
+        .eq('scenario_id', scenarioId);
+
+      if (progressError) throw progressError;
+
+      console.log('Scenario progress reset successfully');
+    } catch (error) {
+      console.error('Error resetting scenario progress:', error);
+      throw error;
+    }
+  },
+
   logout: () => {
-    set({ currentUser: null, userId: null, scenarios: defaultScenarios, isAuthenticated: false });
+    set({
+      currentUser: null,
+      userId: null,
+      userType: null,
+      adminUserId: null,
+      scenarios: defaultScenarios,
+      isAuthenticated: false,
+      isAdmin: false
+    });
   },
 }));

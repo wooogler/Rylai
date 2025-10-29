@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, GROOMING_STAGES } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, GROOMING_STAGES } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
@@ -23,7 +23,23 @@ export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
   const scenarioSlug = params.scenario as string;
-  const { scenarios, commonSystemPrompt, feedbackPersona, feedbackInstruction, isAdmin, isAuthenticated, logout } = useScenarioStore();
+  const {
+    scenarios,
+    commonSystemPrompt,
+    feedbackPersona,
+    feedbackInstruction,
+    isAdmin,
+    isAuthenticated,
+    userType,
+    saveUserMessage,
+    saveUserFeedback,
+    loadUserMessages,
+    loadUserFeedbacks,
+    recordScenarioVisit,
+    loadScenarioProgress,
+    resetScenarioProgress,
+    logout
+  } = useScenarioStore();
 
   // Redirect to home if not authenticated
   useEffect(() => {
@@ -34,7 +50,7 @@ export default function ChatPage() {
 
   const initialScenarioIndex = scenarios.findIndex(s => s.slug === scenarioSlug);
   const [currentScenario, setCurrentScenario] = useState(initialScenarioIndex >= 0 ? initialScenarioIndex : 0);
-  const [messages, setMessages] = useState<Message[]>(scenarios[currentScenario].presetMessages);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [currentFeedback, setCurrentFeedback] = useState<FeedbackItem | null>(null);
@@ -42,6 +58,7 @@ export default function ChatPage() {
   const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null);
   const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
+  const [scenarioProgressMap, setScenarioProgressMap] = useState<Map<number, ScenarioProgress>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const feedbackContainerRef = useRef<HTMLDivElement>(null);
@@ -57,9 +74,62 @@ export default function ChatPage() {
   }, [messages, isTyping]);
 
   useEffect(() => {
-    // Update messages when scenarios change from admin
-    setMessages(scenarios[currentScenario].presetMessages);
-  }, [scenarios, currentScenario]);
+    // Load messages for user type, or use preset for admin
+    const loadMessages = async () => {
+      if (userType === 'user' && scenarios[currentScenario]) {
+        const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
+        const savedFeedbacks = await loadUserFeedbacks(scenarios[currentScenario].id);
+
+        // Record visit
+        await recordScenarioVisit(scenarios[currentScenario].id);
+
+        // Load progress for all scenarios
+        const progressMap = await loadScenarioProgress();
+        setScenarioProgressMap(progressMap);
+
+        if (savedMessages.length > 0) {
+          // Mark messages that have feedback
+          const messagesWithFeedback = savedMessages.map(msg => ({
+            ...msg,
+            feedbackGenerated: savedFeedbacks.has(msg.id)
+          }));
+          setMessages(messagesWithFeedback);
+
+          // Load feedback map
+          const feedbackMap = new Map<number, FeedbackItem>();
+          messagesWithFeedback.forEach((msg, index) => {
+            if (savedFeedbacks.has(msg.id)) {
+              feedbackMap.set(index, {
+                feedback: savedFeedbacks.get(msg.id)!,
+                messageIndex: index,
+                messageCount: index + 1,
+                lastUserMessage: msg.sender === 'user' ? msg.text : 'Conversation',
+                timestamp: new Date()
+              });
+            }
+          });
+          setMessageFeedbackMap(feedbackMap);
+        } else {
+          // First time: save preset messages
+          const presetMessages = scenarios[currentScenario].presetMessages;
+          setMessages(presetMessages);
+
+          // Save preset messages to DB
+          for (const msg of presetMessages) {
+            try {
+              await saveUserMessage(scenarios[currentScenario].id, msg);
+            } catch (error) {
+              console.error('Failed to save preset message:', error);
+            }
+          }
+        }
+      } else {
+        setMessages(scenarios[currentScenario].presetMessages);
+      }
+    };
+
+    loadMessages();
+  }, [scenarios, currentScenario, userType, loadUserMessages, loadUserFeedbacks, saveUserMessage, recordScenarioVisit, loadScenarioProgress]);
 
   const generateFeedback = async (messageIndex: number) => {
     setIsGeneratingFeedback(true);
@@ -110,6 +180,15 @@ export default function ChatPage() {
         // Set as current feedback
         setCurrentFeedback(feedbackItem);
 
+        // Save feedback for user type
+        if (userType === 'user') {
+          try {
+            await saveUserFeedback(scenarios[currentScenario].id, messages[messageIndex].id, data.feedback);
+          } catch (error) {
+            console.error('Failed to save feedback:', error);
+          }
+        }
+
         // Scroll feedback container to top
         setTimeout(() => {
           if (feedbackContainerRef.current) {
@@ -135,7 +214,7 @@ export default function ChatPage() {
     }
   };
 
-  const handleSendResponse = () => {
+  const handleSendResponse = async () => {
     if (responseText.trim() && !isTyping && !isGeneratingFeedback) {
       const textToSend = responseText;
       setResponseText("");
@@ -148,6 +227,15 @@ export default function ChatPage() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, newMessage]);
+
+      // Save user message if user type
+      if (userType === 'user') {
+        try {
+          await saveUserMessage(scenarios[currentScenario].id, newMessage);
+        } catch (error) {
+          console.error('Failed to save user message:', error);
+        }
+      }
 
       // Show typing indicator and call OpenAI API
       setIsTyping(true);
@@ -164,7 +252,7 @@ export default function ChatPage() {
         }),
       })
         .then(res => res.json())
-        .then(data => {
+        .then(async data => {
           const autoReply: Message = {
             id: (Date.now() + 1).toString(),
             text: data.reply || "Sorry, I couldn't respond right now.",
@@ -172,6 +260,16 @@ export default function ChatPage() {
             timestamp: new Date(),
           };
           setMessages(prev => [...prev, autoReply]);
+
+          // Save AI reply if user type
+          if (userType === 'user') {
+            try {
+              await saveUserMessage(scenarios[currentScenario].id, autoReply);
+            } catch (error) {
+              console.error('Failed to save AI message:', error);
+            }
+          }
+
           setIsTyping(false);
         })
         .catch(error => {
@@ -221,14 +319,56 @@ export default function ChatPage() {
     }
   };
 
-  const handleReset = () => {
-    if (confirm("Are you sure you want to reset this conversation? All messages and feedback will be cleared.")) {
-      setMessages(scenarios[currentScenario].presetMessages);
-      setResponseText("");
-      setIsTyping(false);
-      setCurrentFeedback(null);
-      setMessageFeedbackMap(new Map());
-      setSelectedMessageIndex(null);
+  const handleReset = async () => {
+    const scenarioName = scenarios[currentScenario].name;
+
+    if (!confirm(`Are you sure you want to reset "${scenarioName}"?\n\nThis will permanently delete:\n• All messages\n• All feedback\n• Visit history\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      if (userType === 'user') {
+        // For user type: delete from database
+        await resetScenarioProgress(scenarios[currentScenario].id);
+
+        // Reset local state
+        setMessages([]);
+        setResponseText("");
+        setIsTyping(false);
+        setCurrentFeedback(null);
+        setMessageFeedbackMap(new Map());
+        setSelectedMessageIndex(null);
+
+        // Reload messages from DB (will save preset messages as it's empty now)
+        const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
+
+        if (savedMessages.length === 0) {
+          // Save and display preset messages
+          const presetMessages = scenarios[currentScenario].presetMessages;
+          setMessages(presetMessages);
+
+          for (const msg of presetMessages) {
+            try {
+              await saveUserMessage(scenarios[currentScenario].id, msg);
+            } catch (error) {
+              console.error('Failed to save preset message:', error);
+            }
+          }
+        } else {
+          setMessages(savedMessages);
+        }
+      } else {
+        // For admin type: just reset local state (temporary)
+        setMessages(scenarios[currentScenario].presetMessages);
+        setResponseText("");
+        setIsTyping(false);
+        setCurrentFeedback(null);
+        setMessageFeedbackMap(new Map());
+        setSelectedMessageIndex(null);
+      }
+    } catch (error) {
+      console.error('Failed to reset scenario:', error);
+      alert('Failed to reset scenario. Please try again.');
     }
   };
 
@@ -251,7 +391,7 @@ export default function ChatPage() {
             ) : (
               <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5 mr-2" />
-                Back
+                Select a Teacher
               </Link>
             )}
             <Button
@@ -289,8 +429,8 @@ export default function ChatPage() {
                   </div>
                   <button
                     onClick={handleReset}
-                    className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="Reset conversation"
+                    className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                    title={userType === 'user' ? "Reset scenario (delete all messages, feedback, and progress)" : "Reset conversation"}
                   >
                     <RotateCcw className="w-5 h-5" />
                   </button>
@@ -431,16 +571,31 @@ export default function ChatPage() {
             </Button>
             <div className="flex items-center gap-4">
               <div className="flex items-center space-x-2">
-                {scenarios.map((_, index) => (
-                  <div
-                    key={index}
-                    className={`w-2 h-2 rounded-full transition-all ${
-                      index === currentScenario
-                        ? "bg-purple-600 w-8"
-                        : "bg-gray-300"
-                    }`}
-                  />
-                ))}
+                {scenarios.map((scenario, index) => {
+                  const progress = scenarioProgressMap.get(scenario.id);
+                  const isVisited = !!progress;
+
+                  return (
+                    <div
+                      key={index}
+                      className="relative group"
+                      title={isVisited ? `Visited ${progress.visitCount} time(s)\nLast: ${progress.lastVisitedAt.toLocaleString()}` : 'Not visited yet'}
+                    >
+                      <div
+                        className={`w-2 h-2 rounded-full transition-all ${
+                          index === currentScenario
+                            ? "bg-purple-600 w-8"
+                            : isVisited
+                            ? "bg-green-500"
+                            : "bg-gray-300"
+                        }`}
+                      />
+                      {isVisited && index !== currentScenario && (
+                        <div className="absolute -top-1 -right-1 w-1.5 h-1.5 bg-green-600 rounded-full" />
+                      )}
+                    </div>
+                  );
+                })}
               </div>
               <p className="text-lg font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
             </div>

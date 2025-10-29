@@ -2,8 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Plus, Trash2, Save, MessageSquare, Download, Upload } from "lucide-react";
-import Link from "next/link";
+import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut } from "lucide-react";
 import { useScenarioStore, type Scenario, type Message } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 
@@ -29,12 +28,22 @@ export default function AdminPage() {
     commonSystemPrompt,
     feedbackPersona,
     feedbackInstruction,
+    isAdmin,
+    isAuthenticated,
+    logout,
     addScenario,
     deleteScenario,
     updateScenario,
     setCommonSystemPrompt,
     setFeedbackPrompts
   } = useScenarioStore();
+
+  // Redirect if not authenticated or not admin
+  useEffect(() => {
+    if (!isAuthenticated || !isAdmin) {
+      router.push('/');
+    }
+  }, [isAuthenticated, isAdmin, router]);
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
   const [editingCommonPrompt, setEditingCommonPrompt] = useState("");
   const [editingFeedbackPersona, setEditingFeedbackPersona] = useState("");
@@ -226,10 +235,7 @@ export default function AdminPage() {
         {/* Header */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
-            <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-              <ArrowLeft className="w-5 h-5 mr-2" />
-              Back to Home
-            </Link>
+            <div></div>
             <div className="flex gap-2">
               <Button
                 onClick={handleExport}
@@ -271,11 +277,22 @@ export default function AdminPage() {
                 <Save className="w-4 h-4 mr-1.5 inline" />
                 Save Changes
               </Button>
+              <Button
+                onClick={() => {
+                  logout();
+                  router.push("/");
+                }}
+                variant="ghost"
+                size="small"
+              >
+                <LogOut className="w-4 h-4 mr-1.5 inline" />
+                Logout
+              </Button>
             </div>
           </div>
-          <h1 className="text-3xl font-bold">Admin Settings</h1>
+          <h1 className="text-3xl font-bold">Scenario Management</h1>
           <p className="text-gray-600 mt-2">
-            Configure prompts and scenarios for your educational scenarios
+            Configure scenarios, prompts, and feedback for your training sessions
           </p>
         </div>
 

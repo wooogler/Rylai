@@ -6,9 +6,11 @@ import { useScenarioStore } from "./store/useScenarioStore";
 import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 
-const PASSWORD = "rylai2025";
+const ADMIN_PASSWORD = "rylai2025";
+const USER_PASSWORD = "user2025";
 
-type ButtonState = "start" | "user" | "existing" | "new";
+type ButtonState = "start" | "existing" | "new";
+type UserType = "admin" | "user";
 
 export default function Home() {
   const [password, setPassword] = useState("");
@@ -17,6 +19,7 @@ export default function Home() {
   const [usernameError, setUsernameError] = useState(false);
   const [buttonState, setButtonState] = useState<ButtonState>("start");
   const [isChecking, setIsChecking] = useState(false);
+  const [userType, setUserType] = useState<UserType | null>(null);
   const router = useRouter();
   const { setCurrentUser, loadUserScenarios } = useScenarioStore();
 
@@ -24,7 +27,13 @@ export default function Home() {
     // Check both password and username
     let hasError = false;
 
-    if (password !== PASSWORD) {
+    // Determine user type based on password
+    let detectedUserType: UserType | null = null;
+    if (password === ADMIN_PASSWORD) {
+      detectedUserType = "admin";
+    } else if (password === USER_PASSWORD) {
+      detectedUserType = "user";
+    } else {
       setPasswordError(true);
       hasError = true;
     }
@@ -38,21 +47,15 @@ export default function Home() {
       return;
     }
 
+    setUserType(detectedUserType);
     const inputUsername = username.trim();
     setIsChecking(true);
 
     try {
-      // Check if username is "user"
-      if (inputUsername === "user") {
-        setButtonState("user");
-        setIsChecking(false);
-        return;
-      }
-
       // Check if username exists in DB
       const { data, error } = await supabase
         .from('users')
-        .select('id')
+        .select('id, user_type')
         .eq('username', inputUsername)
         .single();
 
@@ -78,11 +81,15 @@ export default function Home() {
     const inputUsername = username.trim();
 
     try {
-      if (buttonState === "user") {
+      // Pass userType to setCurrentUser
+      await setCurrentUser(inputUsername, userType || "user");
+      await loadUserScenarios();
+
+      // User type: go to select-user to choose which admin's scenarios to use
+      // Admin type: go directly to chat
+      if (userType === "user") {
         router.push("/select-user");
       } else {
-        await setCurrentUser(inputUsername);
-        await loadUserScenarios();
         router.push("/chat/stage-1-friendship");
       }
     } catch (err) {
@@ -93,8 +100,6 @@ export default function Home() {
 
   const getButtonText = () => {
     switch (buttonState) {
-      case "user":
-        return "Start Chatting";
       case "existing":
         return "Login";
       case "new":
@@ -136,32 +141,14 @@ export default function Home() {
 
           <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
             <p className="text-sm text-purple-900">
-              <span className="font-semibold">For Educators:</span> Use username &quot;user&quot; to access all scenarios.
+              <span className="font-semibold">For Educators:</span> Use password &quot;rylai2025&quot; to create and manage scenarios.
               <br />
-              <span className="font-semibold">For Learners:</span> Enter your unique username to start training.
+              <span className="font-semibold">For Learners:</span> Use password &quot;user2025&quot; to practice with educator scenarios.
             </p>
           </div>
         </div>
 
         <div className="pt-4 space-y-4">
-          <div>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-                setPasswordError(false);
-              }}
-              placeholder="Enter password"
-              disabled={buttonState !== "start"}
-              className={`px-6 py-3 border rounded-full text-center focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                passwordError ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
-              } ${buttonState !== "start" ? "bg-gray-100" : ""}`}
-            />
-            {passwordError && (
-              <p className="text-red-500 text-sm mt-2">Incorrect password</p>
-            )}
-          </div>
           <div>
             <input
               type="text"
@@ -178,6 +165,24 @@ export default function Home() {
             />
             {usernameError && (
               <p className="text-red-500 text-sm mt-2">Please enter a username</p>
+            )}
+          </div>
+          <div>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setPasswordError(false);
+              }}
+              placeholder="Enter password"
+              disabled={buttonState !== "start"}
+              className={`px-6 py-3 border rounded-full text-center focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                passwordError ? "border-red-500 ring-2 ring-red-200" : "border-gray-300"
+              } ${buttonState !== "start" ? "bg-gray-100" : ""}`}
+            />
+            {passwordError && (
+              <p className="text-red-500 text-sm mt-2">Incorrect password</p>
             )}
           </div>
 

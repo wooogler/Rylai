@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useScenarioStore } from "../store/useScenarioStore";
-import { ArrowLeft, Trash2 } from "lucide-react";
+import { ArrowLeft, Trash2, RotateCcw, LogOut } from "lucide-react";
 import Link from "next/link";
 
 interface User {
@@ -13,27 +13,68 @@ interface User {
   created_at: string;
 }
 
+interface AdminWithProgress extends User {
+  scenarioCount: number;
+  visitedCount: number;
+}
+
 export default function SelectUserPage() {
   const router = useRouter();
-  const { setCurrentUser, loadUserScenarios, scenarios } = useScenarioStore();
+  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, scenarios, userType, userId } = useScenarioStore();
   const [users, setUsers] = useState<User[]>([]);
+  const [adminsWithProgress, setAdminsWithProgress] = useState<AdminWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    loadUsers();
+    loadUsersWithProgress();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const loadUsers = async () => {
+  const loadUsersWithProgress = async () => {
     try {
-      const { data, error } = await supabase
+      // Load users (admins if learner type)
+      const query = supabase
         .from('users')
-        .select('id, username, created_at')
+        .select('id, username, created_at, user_type')
         .order('username', { ascending: true });
 
-      if (error) throw error;
+      if (userType === 'user') {
+        query.eq('user_type', 'admin');
+      }
 
-      setUsers(data || []);
+      const { data: userData, error: userError } = await query;
+      if (userError) throw userError;
+
+      setUsers(userData || []);
+
+      // For learner type, load progress for each admin
+      if (userType === 'user' && userId) {
+        const progressMap = await loadScenarioProgress();
+
+        const adminsWithProgressData: AdminWithProgress[] = await Promise.all(
+          (userData || []).map(async (user) => {
+            // Get scenario count for this admin
+            const { data: scenarioData } = await supabase
+              .from('scenarios')
+              .select('id')
+              .eq('user_id', user.id);
+
+            const scenarioCount = scenarioData?.length || 0;
+
+            // Count how many of this admin's scenarios the learner has visited
+            const visitedCount = scenarioData?.filter(s => progressMap.has(s.id)).length || 0;
+
+            return {
+              ...user,
+              scenarioCount,
+              visitedCount
+            };
+          })
+        );
+
+        setAdminsWithProgress(adminsWithProgressData);
+      }
     } catch (err) {
       console.error("Error loading users:", err);
       setError(true);
@@ -42,19 +83,81 @@ export default function SelectUserPage() {
     }
   };
 
-  const handleUserSelect = async (username: string) => {
+  const handleUserSelect = async (selectedUsername: string) => {
     try {
       setIsLoading(true);
-      // Set as viewer (not admin)
-      await setCurrentUser(username, false);
-      await loadUserScenarios();
 
-      // Go to first scenario's chat page
-      const firstSlug = scenarios[0]?.slug || "asking-profile";
-      router.push(`/chat/${firstSlug}`);
+      if (userType === 'user') {
+        // Learner selecting an admin's scenarios
+        // Keep the learner's identity but load admin's scenarios
+        const { data: adminUser } = await supabase
+          .from('users')
+          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
+          .eq('username', selectedUsername)
+          .eq('user_type', 'admin')
+          .single();
+
+        if (!adminUser) {
+          throw new Error('Admin user not found');
+        }
+
+        // Update store with selected admin's info
+        const store = useScenarioStore.getState();
+        store.adminUserId = adminUser.id;
+        store.commonSystemPrompt = adminUser.common_system_prompt;
+        store.feedbackPersona = adminUser.feedback_persona;
+        store.feedbackInstruction = adminUser.feedback_instruction;
+
+        await loadUserScenarios();
+
+        // Go to first scenario's chat page
+        const firstSlug = scenarios[0]?.slug || "stage-1-friendship";
+        router.push(`/chat/${firstSlug}`);
+      } else {
+        // Admin viewing another user's scenarios
+        await setCurrentUser(selectedUsername, "admin");
+        await loadUserScenarios();
+
+        // Go to first scenario's chat page
+        const firstSlug = scenarios[0]?.slug || "stage-1-friendship";
+        router.push(`/chat/${firstSlug}`);
+      }
     } catch (err) {
       console.error("Error loading user:", err);
       setError(true);
+      setIsLoading(false);
+    }
+  };
+
+  const handleResetProgress = async (e: React.MouseEvent, adminId: string, adminUsername: string) => {
+    e.stopPropagation();
+
+    if (!confirm(`Are you sure you want to reset ALL progress for "${adminUsername}"?\n\nThis will permanently delete:\n• All messages from all scenarios\n• All feedback from all scenarios\n• All visit history\n\nThis action cannot be undone.`)) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      // Get all scenarios for this admin
+      const { data: scenarioData } = await supabase
+        .from('scenarios')
+        .select('id')
+        .eq('user_id', adminId);
+
+      if (scenarioData && scenarioData.length > 0) {
+        // Reset each scenario
+        for (const scenario of scenarioData) {
+          await resetScenarioProgress(scenario.id);
+        }
+      }
+
+      // Reload the page data
+      await loadUsersWithProgress();
+    } catch (error) {
+      console.error('Failed to reset progress:', error);
+      alert('Failed to reset progress. Please try again.');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -86,7 +189,7 @@ export default function SelectUserPage() {
       if (userError) throw userError;
 
       // Reload users list
-      await loadUsers();
+      await loadUsersWithProgress();
     } catch (err) {
       console.error("Error deleting user:", err);
       alert("Failed to delete user. Please try again.");
@@ -121,52 +224,120 @@ export default function SelectUserPage() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900 mb-4">
-            <ArrowLeft className="w-5 h-5 mr-2" />
-            Back to Home
-          </Link>
+          <div className="flex justify-between items-center mb-4">
+            {userType !== 'user' && (
+              <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
+                <ArrowLeft className="w-5 h-5 mr-2" />
+                Back to Home
+              </Link>
+            )}
+            {userType === 'user' && <div></div>}
+            <button
+              onClick={() => {
+                logout();
+                router.push('/');
+              }}
+              className="inline-flex items-center text-gray-600 hover:text-gray-900"
+            >
+              <LogOut className="w-5 h-5 mr-2" />
+              Logout
+            </button>
+          </div>
           <h1 className="text-4xl font-bold text-gray-900">
-            Select a User Account
+            {userType === 'user' ? 'Select a Teacher' : 'Select a User Account'}
           </h1>
           <p className="text-xl text-gray-600 mt-2">
-            Choose from existing user accounts to view their scenarios
+            {userType === 'user'
+              ? 'Choose which teacher\'s scenarios you want to practice'
+              : 'Choose from existing user accounts to view their scenarios'}
           </p>
         </div>
 
         {/* User Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {users.map((user) => (
-            <div
-              key={user.id}
-              className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-purple-500 relative group"
-            >
-              <button
-                onClick={() => handleUserSelect(user.username)}
-                className="w-full p-6 text-left"
+          {(userType === 'user' ? adminsWithProgress : users).map((user) => {
+            const adminData = userType === 'user' ? user as AdminWithProgress : null;
+            const progressPercentage = adminData && adminData.scenarioCount > 0
+              ? (adminData.visitedCount / adminData.scenarioCount) * 100
+              : 0;
+
+            return (
+              <div
+                key={user.id}
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-purple-500 relative group"
               >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {user.username}
-                    </h3>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Created: {new Date(user.created_at).toLocaleDateString()}
-                    </p>
+                <button
+                  onClick={() => handleUserSelect(user.username)}
+                  className="w-full p-6 text-left"
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {user.username}
+                      </h3>
+                      <p className="text-sm text-gray-500 mt-1">
+                        Created: {new Date(user.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-purple-600 font-semibold">
+                      →
+                    </div>
                   </div>
-                  <div className="text-purple-600 font-semibold">
-                    →
-                  </div>
-                </div>
-              </button>
-              <button
-                onClick={(e) => handleDeleteUser(e, user.id, user.username)}
-                className="absolute top-2 right-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Delete user"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
+
+                  {/* Progress Bar - Only for learner viewing admins */}
+                  {userType === 'user' && adminData && (
+                    <div className="mt-4 pt-4 border-t border-gray-100">
+                      <div className="flex justify-between text-xs text-gray-600 mb-2">
+                        <span>Progress</span>
+                        <span className="font-semibold">
+                          {adminData.visitedCount} / {adminData.scenarioCount} scenarios
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${
+                            progressPercentage === 0
+                              ? 'bg-gray-300'
+                              : progressPercentage === 100
+                              ? 'bg-green-500'
+                              : 'bg-purple-600'
+                          }`}
+                          style={{ width: `${progressPercentage}%` }}
+                        />
+                      </div>
+                      {progressPercentage === 100 && (
+                        <p className="text-xs text-green-600 mt-2 font-semibold">
+                          ✓ Completed!
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </button>
+
+                {/* Reset button - Only for learner with progress */}
+                {userType === 'user' && adminData && adminData.visitedCount > 0 && (
+                  <button
+                    onClick={(e) => handleResetProgress(e, user.id, user.username)}
+                    className="absolute top-2 right-2 p-2 text-orange-500 hover:text-orange-700 hover:bg-orange-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Reset all progress for this teacher"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Delete button - Only for admin */}
+                {userType !== 'user' && (
+                  <button
+                    onClick={(e) => handleDeleteUser(e, user.id, user.username)}
+                    className="absolute top-2 right-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Delete user"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {users.length === 0 && (
