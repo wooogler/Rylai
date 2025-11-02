@@ -20,7 +20,7 @@ interface AdminWithProgress extends User {
 
 export default function SelectUserPage() {
   const router = useRouter();
-  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, scenarios, userType, userId, isParent } = useScenarioStore();
+  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, userType, userId } = useScenarioStore();
   const [users, setUsers] = useState<User[]>([]);
   const [adminsWithProgress, setAdminsWithProgress] = useState<AdminWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
