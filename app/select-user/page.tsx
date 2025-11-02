@@ -20,7 +20,7 @@ interface AdminWithProgress extends User {
 
 export default function SelectUserPage() {
   const router = useRouter();
-  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, scenarios, userType, userId } = useScenarioStore();
+  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, scenarios, userType, userId, isParent } = useScenarioStore();
   const [users, setUsers] = useState<User[]>([]);
   const [adminsWithProgress, setAdminsWithProgress] = useState<AdminWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -33,13 +33,13 @@ export default function SelectUserPage() {
 
   const loadUsersWithProgress = async () => {
     try {
-      // Load users (admins if learner type)
+      // Load users (admins if learner/parent type)
       const query = supabase
         .from('users')
         .select('id, username, created_at, user_type')
         .order('username', { ascending: true });
 
-      if (userType === 'user') {
+      if (userType === 'user' || userType === 'parent') {
         query.eq('user_type', 'admin');
       }
 
@@ -48,9 +48,10 @@ export default function SelectUserPage() {
 
       setUsers(userData || []);
 
-      // For learner type, load progress for each admin
-      if (userType === 'user' && userId) {
+      // For learner/parent type, load progress for each admin
+      if ((userType === 'user' || userType === 'parent') && userId) {
         const progressMap = await loadScenarioProgress();
+        console.log('[SelectUser] Progress map loaded:', { userId, userType, progressMapSize: progressMap.size, progressMap });
 
         const adminsWithProgressData: AdminWithProgress[] = await Promise.all(
           (userData || []).map(async (user) => {
@@ -64,6 +65,8 @@ export default function SelectUserPage() {
 
             // Count how many of this admin's scenarios the learner has visited
             const visitedCount = scenarioData?.filter(s => progressMap.has(s.id)).length || 0;
+
+            console.log('[SelectUser] Admin progress:', { admin: user.username, scenarioCount, visitedCount, scenarioIds: scenarioData?.map(s => s.id) });
 
             return {
               ...user,
@@ -87,8 +90,8 @@ export default function SelectUserPage() {
     try {
       setIsLoading(true);
 
-      if (userType === 'user') {
-        // Learner selecting an admin's scenarios
+      if (userType === 'user' || userType === 'parent') {
+        // Learner/Parent selecting an admin's scenarios
         // Keep the learner's identity but load admin's scenarios
         const { data: adminUser } = await supabase
           .from('users')
@@ -110,16 +113,19 @@ export default function SelectUserPage() {
 
         await loadUserScenarios();
 
-        // Go to first scenario's chat page
-        const firstSlug = scenarios[0]?.slug || "stage-1-friendship";
+        // Go to first scenario's chat page - get scenarios from store after loading
+        const updatedScenarios = useScenarioStore.getState().scenarios;
+        const firstSlug = updatedScenarios[0]?.slug || "stage-1-friendship";
+        console.log('[handleUserSelect] Navigating to scenario:', { firstSlug, scenarioId: updatedScenarios[0]?.id, totalScenarios: updatedScenarios.length });
         router.push(`/chat/${firstSlug}`);
       } else {
         // Admin viewing another user's scenarios
         await setCurrentUser(selectedUsername, "admin");
         await loadUserScenarios();
 
-        // Go to first scenario's chat page
-        const firstSlug = scenarios[0]?.slug || "stage-1-friendship";
+        // Go to first scenario's chat page - get scenarios from store after loading
+        const updatedScenarios = useScenarioStore.getState().scenarios;
+        const firstSlug = updatedScenarios[0]?.slug || "stage-1-friendship";
         router.push(`/chat/${firstSlug}`);
       }
     } catch (err) {
@@ -225,13 +231,13 @@ export default function SelectUserPage() {
         {/* Header */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4">
-            {userType !== 'user' && (
+            {userType !== 'user' && userType !== 'parent' && (
               <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5 mr-2" />
                 Back to Home
               </Link>
             )}
-            {userType === 'user' && <div></div>}
+            {(userType === 'user' || userType === 'parent') && <div></div>}
             <button
               onClick={() => {
                 logout();
@@ -244,19 +250,21 @@ export default function SelectUserPage() {
             </button>
           </div>
           <h1 className="text-4xl font-bold text-gray-900">
-            {userType === 'user' ? 'Select a Teacher' : 'Select a User Account'}
+            {userType === 'user' ? 'Select a Teacher' : userType === 'parent' ? 'Select an Educator' : 'Select a User Account'}
           </h1>
           <p className="text-xl text-gray-600 mt-2">
             {userType === 'user'
               ? 'Choose which teacher\'s scenarios you want to practice'
+              : userType === 'parent'
+              ? 'Choose which educator\'s scenarios to view your child\'s progress'
               : 'Choose from existing user accounts to view their scenarios'}
           </p>
         </div>
 
         {/* User Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(userType === 'user' ? adminsWithProgress : users).map((user) => {
-            const adminData = userType === 'user' ? user as AdminWithProgress : null;
+          {((userType === 'user' || userType === 'parent') ? adminsWithProgress : users).map((user) => {
+            const adminData = (userType === 'user' || userType === 'parent') ? user as AdminWithProgress : null;
             const progressPercentage = adminData && adminData.scenarioCount > 0
               ? (adminData.visitedCount / adminData.scenarioCount) * 100
               : 0;
@@ -284,8 +292,8 @@ export default function SelectUserPage() {
                     </div>
                   </div>
 
-                  {/* Progress Bar - Only for learner viewing admins */}
-                  {userType === 'user' && adminData && (
+                  {/* Progress Bar - Only for learner/parent viewing admins */}
+                  {(userType === 'user' || userType === 'parent') && adminData && (
                     <div className="mt-4 pt-4 border-t border-gray-100">
                       <div className="flex justify-between text-xs text-gray-600 mb-2">
                         <span>Progress</span>
@@ -314,7 +322,7 @@ export default function SelectUserPage() {
                   )}
                 </button>
 
-                {/* Reset button - Only for learner with progress */}
+                {/* Reset button - Only for learner with progress (not for parents) */}
                 {userType === 'user' && adminData && adminData.visitedCount > 0 && (
                   <button
                     onClick={(e) => handleResetProgress(e, user.id, user.username)}
@@ -325,8 +333,8 @@ export default function SelectUserPage() {
                   </button>
                 )}
 
-                {/* Delete button - Only for admin */}
-                {userType !== 'user' && (
+                {/* Delete button - Only for admin (not for learner or parent) */}
+                {userType !== 'user' && userType !== 'parent' && (
                   <button
                     onClick={(e) => handleDeleteUser(e, user.id, user.username)}
                     className="absolute top-2 right-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings, Eye } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, GROOMING_STAGES } from "../../store/useScenarioStore";
@@ -29,6 +29,7 @@ export default function ChatPage() {
     feedbackPersona,
     feedbackInstruction,
     isAdmin,
+    isParent,
     isAuthenticated,
     userType,
     saveUserMessage,
@@ -59,6 +60,9 @@ export default function ChatPage() {
   const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
   const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
   const [scenarioProgressMap, setScenarioProgressMap] = useState<Map<number, ScenarioProgress>>(new Map());
+  const [hoveredButton, setHoveredButton] = useState<'preview' | 'send' | null>(null);
+  const [previewFeedback, setPreviewFeedback] = useState<FeedbackItem | null>(null);
+  const [previewText, setPreviewText] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const feedbackContainerRef = useRef<HTMLDivElement>(null);
@@ -74,9 +78,9 @@ export default function ChatPage() {
   }, [messages, isTyping]);
 
   useEffect(() => {
-    // Load messages for user type, or use preset for admin
+    // Load messages for user/parent type, or use preset for admin
     const loadMessages = async () => {
-      if (userType === 'user' && scenarios[currentScenario]) {
+      if ((userType === 'user' || userType === 'parent') && scenarios[currentScenario]) {
         const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
         const savedFeedbacks = await loadUserFeedbacks(scenarios[currentScenario].id);
 
@@ -110,8 +114,11 @@ export default function ChatPage() {
           });
           setMessageFeedbackMap(feedbackMap);
         } else {
-          // First time: save preset messages
-          const presetMessages = scenarios[currentScenario].presetMessages;
+          // First time: save preset messages with unique IDs
+          const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
+            ...msg,
+            id: `${scenarios[currentScenario].id}-preset-${index}-${msg.id}` // Make ID unique per scenario
+          }));
           setMessages(presetMessages);
 
           // Save preset messages to DB
@@ -291,6 +298,83 @@ export default function ChatPage() {
     }
   };
 
+  const handlePreviewFeedback = async () => {
+    if (!responseText.trim() || isGeneratingFeedback || isTyping) return;
+
+    // Check if we already have feedback for this exact text
+    if (previewText === responseText && previewFeedback) {
+      // Already have feedback, show it
+      setCurrentFeedback(previewFeedback);
+      setSelectedMessageIndex(null);
+
+      // Scroll feedback container to top
+      setTimeout(() => {
+        if (feedbackContainerRef.current) {
+          feedbackContainerRef.current.scrollTop = 0;
+        }
+      }, 100);
+      return;
+    }
+
+    setIsGeneratingFeedback(true);
+    setSelectedMessageIndex(null);
+
+    try {
+      // Create a temporary message array including the preview message
+      const previewMessage: Message = {
+        id: 'preview-temp',
+        text: responseText,
+        sender: 'user',
+        timestamp: new Date(),
+      };
+
+      const conversationWithPreview = [...messages, previewMessage];
+
+      const response = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversationHistory: conversationWithPreview,
+          feedbackPersona,
+          feedbackInstruction,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.feedback) {
+        const feedbackItem: FeedbackItem = {
+          feedback: data.feedback,
+          messageIndex: conversationWithPreview.length - 1,
+          messageCount: conversationWithPreview.length,
+          lastUserMessage: responseText.length > 50
+            ? responseText.substring(0, 50) + '...'
+            : responseText,
+          timestamp: new Date(),
+        };
+
+        // Store and show feedback
+        setPreviewFeedback(feedbackItem);
+        setPreviewText(responseText);
+        setCurrentFeedback(feedbackItem);
+
+        // Scroll feedback container to top
+        setTimeout(() => {
+          if (feedbackContainerRef.current) {
+            feedbackContainerRef.current.scrollTop = 0;
+          }
+        }, 100);
+      } else {
+        throw new Error('No feedback in response');
+      }
+
+      setIsGeneratingFeedback(false);
+    } catch (error) {
+      console.error('Preview feedback generation error:', error);
+      setIsGeneratingFeedback(false);
+    }
+  };
+
   const handlePreviousScenario = () => {
     if (currentScenario > 0) {
       const prevScenario = currentScenario - 1;
@@ -391,7 +475,7 @@ export default function ChatPage() {
             ) : (
               <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5 mr-2" />
-                Select a Teacher
+                {isParent ? "Select an Educator" : "Select a Teacher"}
               </Link>
             )}
             <Button
@@ -427,6 +511,7 @@ export default function ChatPage() {
                       <p className="text-sm text-gray-500">{scenario.handle}</p>
                     </div>
                   </div>
+                  {!isParent && (
                   <button
                     onClick={handleReset}
                     className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
@@ -434,6 +519,7 @@ export default function ChatPage() {
                   >
                     <RotateCcw className="w-5 h-5" />
                   </button>
+                  )}
                 </div>
                 <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                   Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
@@ -475,33 +561,111 @@ export default function ChatPage() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Chat Input */}
+              {/* Chat Input - Hidden for Parents */}
+              {!isParent && (
               <div className="bg-white border-t border-gray-200 px-6 py-4 rounded-b-lg">
                 <div className="relative">
-                  <input
-                    type="text"
-                    value={responseText}
-                    onChange={(e) => setResponseText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendResponse();
+                  <div
+                    className={`relative ${responseText.trim() && !isTyping && !isGeneratingFeedback ? 'ring-2 ring-gray-400 ring-offset-2 rounded-full transition-all' : ''} ${previewFeedback && previewText === responseText ? 'cursor-pointer' : ''}`}
+                    onClick={() => {
+                      // When clicking on input area with preview feedback, show the preview feedback
+                      if (previewFeedback && previewText === responseText) {
+                        setCurrentFeedback(previewFeedback);
+                        setSelectedMessageIndex(null);
+
+                        // Scroll feedback container to top
+                        setTimeout(() => {
+                          if (feedbackContainerRef.current) {
+                            feedbackContainerRef.current.scrollTop = 0;
+                          }
+                        }, 100);
                       }
                     }}
-                    disabled={isTyping || isGeneratingFeedback}
-                    className="w-full pl-6 pr-16 py-4 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:cursor-not-allowed text-base"
-                    placeholder="Send a message..."
-                  />
-                  {responseText.trim() && !isTyping && !isGeneratingFeedback && (
-                    <button
-                      onClick={handleSendResponse}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-3 bg-purple-600 rounded-full text-white hover:bg-purple-700 transition-colors"
-                    >
-                      <Send className="w-5 h-5 fill-current" />
-                    </button>
+                  >
+                    <input
+                      type="text"
+                      value={responseText}
+                      onChange={(e) => {
+                        const newText = e.target.value;
+                        setResponseText(newText);
+
+                        // Clear preview feedback if text changed
+                        if (newText !== previewText) {
+                          setPreviewFeedback(null);
+                          setPreviewText('');
+                          setCurrentFeedback(null);
+                          setSelectedMessageIndex(null);
+                        }
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        // When clicking on input with preview feedback, show the preview feedback
+                        if (previewFeedback && previewText === responseText) {
+                          setCurrentFeedback(previewFeedback);
+                          setSelectedMessageIndex(null);
+
+                          // Scroll feedback container to top
+                          setTimeout(() => {
+                            if (feedbackContainerRef.current) {
+                              feedbackContainerRef.current.scrollTop = 0;
+                            }
+                          }, 100);
+                        }
+                      }}
+                      onFocus={() => {
+                        // When focusing on input with preview feedback, show the preview feedback
+                        if (previewFeedback && previewText === responseText) {
+                          setCurrentFeedback(previewFeedback);
+                          setSelectedMessageIndex(null);
+
+                          // Scroll feedback container to top
+                          setTimeout(() => {
+                            if (feedbackContainerRef.current) {
+                              feedbackContainerRef.current.scrollTop = 0;
+                            }
+                          }, 100);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          handleSendResponse();
+                        }
+                      }}
+                      disabled={isTyping || isGeneratingFeedback}
+                      className="w-full pl-6 pr-28 py-4 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:cursor-not-allowed text-base"
+                      placeholder="Send a message..."
+                    />
+                    {responseText.trim() && !isTyping && !isGeneratingFeedback && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                        <button
+                          onClick={handlePreviewFeedback}
+                          onMouseEnter={() => setHoveredButton('preview')}
+                          onMouseLeave={() => setHoveredButton(null)}
+                          className="p-2.5 bg-blue-500 rounded-full text-white hover:bg-blue-600 transition-colors"
+                          title="Preview feedback before sending"
+                        >
+                          <Eye className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={handleSendResponse}
+                          onMouseEnter={() => setHoveredButton('send')}
+                          onMouseLeave={() => setHoveredButton(null)}
+                          className="p-2.5 bg-purple-600 rounded-full text-white hover:bg-purple-700 transition-colors"
+                        >
+                          <Send className="w-5 h-5 fill-current" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {hoveredButton && responseText.trim() && !isTyping && !isGeneratingFeedback && (
+                    <span className="absolute -top-6 left-0 text-xs text-gray-500 whitespace-nowrap">
+                      {hoveredButton === 'preview' ? 'Preview feedback before sending' : 'Send message'}
+                    </span>
                   )}
                 </div>
               </div>
+              )}
             </div>
           </div>
 
@@ -513,7 +677,10 @@ export default function ChatPage() {
                 <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
                 {currentFeedback && (
                   <p className="text-xs text-gray-500 mt-1">
-                    Feedback for messages 1-{currentFeedback.messageCount}
+                    {previewFeedback && currentFeedback === previewFeedback
+                      ? `Preview Feedback for message "${currentFeedback.lastUserMessage}"`
+                      : `Feedback for message "${currentFeedback.lastUserMessage}"`
+                    }
                   </p>
                 )}
               </div>
@@ -524,7 +691,7 @@ export default function ChatPage() {
               >
                 {!currentFeedback && !isGeneratingFeedback ? (
                   <p className="text-gray-400 italic">
-                    Click on any message to generate feedback...
+                    Click on any message or preview your input to generate feedback...
                   </p>
                 ) : isGeneratingFeedback ? (
                   <div className="flex items-center space-x-2 text-gray-500">
@@ -534,23 +701,25 @@ export default function ChatPage() {
                     <span className="text-sm">Generating feedback...</span>
                   </div>
                 ) : (
-                  <div className="text-sm text-gray-800 leading-relaxed">
-                    <ReactMarkdown
-                      components={{
-                        h1: (props) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
-                        h2: (props) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
-                        h3: (props) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
-                        p: (props) => <p className="mb-3 text-gray-800" {...props} />,
-                        ul: (props) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                        ol: (props) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                        li: (props) => <li className="text-gray-800" {...props} />,
-                        strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
-                        em: (props) => <em className="italic text-gray-800" {...props} />,
-                        code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
-                      }}
-                    >
-                      {currentFeedback?.feedback || ''}
-                    </ReactMarkdown>
+                  <div>
+                    <div className="text-sm text-gray-800 leading-relaxed">
+                      <ReactMarkdown
+                        components={{
+                          h1: (props) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
+                          h2: (props) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
+                          h3: (props) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
+                          p: (props) => <p className="mb-3 text-gray-800" {...props} />,
+                          ul: (props) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                          ol: (props) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
+                          li: (props) => <li className="text-gray-800" {...props} />,
+                          strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
+                          em: (props) => <em className="italic text-gray-800" {...props} />,
+                          code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
+                        }}
+                      >
+                        {currentFeedback?.feedback || ''}
+                      </ReactMarkdown>
+                    </div>
                   </div>
                 )}
               </div>

@@ -83,7 +83,7 @@ export interface ScenarioProgress {
 interface ScenarioStore {
   currentUser: string | null;
   userId: string | null;
-  userType: 'admin' | 'user' | null;
+  userType: 'admin' | 'user' | 'parent' | null;
   scenarios: Scenario[];
   commonSystemPrompt: string;
   feedbackPersona: string;
@@ -91,8 +91,10 @@ interface ScenarioStore {
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  adminUserId: string | null; // For user type: which admin's scenarios to use
-  setCurrentUser: (username: string, userType: 'admin' | 'user') => Promise<void>;
+  isParent: boolean;
+  adminUserId: string | null; // For user/parent type: which admin's scenarios to use
+  childUserId: string | null; // For parent type: which child's data to view
+  setCurrentUser: (username: string, userType: 'admin' | 'user' | 'parent') => Promise<void>;
   loadUserScenarios: () => Promise<void>;
   setCommonSystemPrompt: (prompt: string) => Promise<void>;
   setFeedbackPrompts: (persona: string, instruction: string) => Promise<void>;
@@ -157,7 +159,9 @@ Your specific objective in this stage is:
 ${stageGoal}
 
 Write your response as if you are texting. Keep it short, casual, and realistic — 1 sentence max.
-Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.`;
+Use informal tone, slang, typos, or abbreviations as needed. Respond naturally in character.
+
+IMPORTANT: Do not include any prefix like "Predator:" or your character name in your response. Just write the message text directly.`;
 }
 
 const defaultScenarios: Scenario[] = [
@@ -354,6 +358,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   userId: null,
   userType: null,
   adminUserId: null,
+  childUserId: null,
   scenarios: defaultScenarios,
   commonSystemPrompt: BASE_SYSTEM_MESSAGE,
   feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
@@ -361,8 +366,9 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
   isLoading: false,
   isAuthenticated: false,
   isAdmin: false,
+  isParent: false,
 
-  setCurrentUser: async (username: string, userType: 'admin' | 'user' = 'user') => {
+  setCurrentUser: async (username: string, userType: 'admin' | 'user' | 'parent' = 'user') => {
     set({ isLoading: true });
     try {
       if (userType === 'admin') {
@@ -383,7 +389,9 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
             feedbackInstruction: existingUser.feedback_instruction,
             isAuthenticated: true,
             isAdmin: true,
-            adminUserId: null
+            isParent: false,
+            adminUserId: null,
+            childUserId: null
           });
         } else {
           // Create new admin user
@@ -425,16 +433,53 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
             feedbackInstruction: newUser.feedback_instruction,
             isAuthenticated: true,
             isAdmin: true,
-            adminUserId: null
+            isParent: false,
+            adminUserId: null,
+            childUserId: null
           });
         }
+      } else if (userType === 'parent') {
+        // Parent flow: exactly same as user, but with parent flag
+        // Find the child (learner) account with this username
+        const { data: childUser, error: childError } = await supabase
+          .from('users')
+          .select('id')
+          .eq('username', username)
+          .eq('user_type', 'user')
+          .single();
+
+        console.log('[Parent Login] Looking for child account:', { username, childUser, childError });
+
+        if (childError || !childUser) {
+          console.error('[Parent Login] Child account not found:', childError);
+          throw new Error('No learner account found with this username. The child must create a learner account first using password "user2025".');
+        }
+
+        console.log('[Parent Login] Found child account with ID:', childUser.id);
+
+        // Parent will select educator in /select-user page, just like user
+        // No need to pre-load admin here
+        set({
+          currentUser: username,
+          userId: childUser.id, // Use child's ID to load their data
+          userType: 'parent',
+          adminUserId: null, // Will be set when parent selects educator
+          childUserId: childUser.id,
+          commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+          feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
+          feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION,
+          isAuthenticated: true,
+          isAdmin: false,
+          isParent: true
+        });
       } else {
         // User (learner) flow
-        // First, find or create the learner account
+        // First, find or create the learner account with user_type='user'
         const { data: existingUser } = await supabase
           .from('users')
           .select('id')
           .eq('username', username)
+          .eq('user_type', 'user')
           .single();
 
         let learnerId: string;
@@ -477,11 +522,13 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
           userId: learnerId,
           userType: 'user',
           adminUserId: adminUser.id,
+          childUserId: null,
           commonSystemPrompt: adminUser.common_system_prompt,
           feedbackPersona: adminUser.feedback_persona,
           feedbackInstruction: adminUser.feedback_instruction,
           isAuthenticated: true,
-          isAdmin: false
+          isAdmin: false,
+          isParent: false
         });
       }
     } finally {
@@ -526,9 +573,9 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
     set({ isLoading: true });
     try {
-      // For user type, load admin's scenarios
+      // For user/parent type, load admin's scenarios
       // For admin type, load own scenarios
-      const targetUserId = userType === 'user' ? adminUserId : userId;
+      const targetUserId = (userType === 'user' || userType === 'parent') ? adminUserId : userId;
 
       if (!targetUserId) {
         throw new Error('No target user ID found');
@@ -652,7 +699,12 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   saveUserMessage: async (scenarioId: number, message: Message) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return;
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+
+    // Parents cannot save messages (read-only)
+    if (userType === 'parent') return;
+
+    console.log('[saveUserMessage] Saving message:', { userId, userType, scenarioId, messageId: message.id });
 
     // Check if message already exists to avoid duplicates
     const { data: existingMessage } = await supabase
@@ -665,6 +717,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
     if (existingMessage) {
       // Message already exists, skip saving
+      console.log('[saveUserMessage] Message already exists, skipping');
       return;
     }
 
@@ -687,11 +740,16 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       console.error('Error saving user message:', error);
       throw error;
     }
+
+    console.log('[saveUserMessage] Message saved successfully');
   },
 
   saveUserFeedback: async (scenarioId: number, messageId: string, feedbackText: string) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return;
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+
+    // Parents cannot save feedback (read-only)
+    if (userType === 'parent') return;
 
     const { error } = await supabase
       .from('user_feedbacks')
@@ -710,7 +768,9 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   loadUserMessages: async (scenarioId: number) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return [];
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return [];
+
+    console.log('[loadUserMessages] Loading messages:', { userId, userType, scenarioId });
 
     const { data, error } = await supabase
       .from('user_messages')
@@ -724,6 +784,8 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       return [];
     }
 
+    console.log('[loadUserMessages] Loaded messages count:', data?.length || 0);
+
     return (data || []).map(row => ({
       id: row.message_id,
       text: row.text,
@@ -735,7 +797,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   loadUserFeedbacks: async (scenarioId: number) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return new Map();
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
 
     const { data, error } = await supabase
       .from('user_feedbacks')
@@ -758,7 +820,10 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   recordScenarioVisit: async (scenarioId: number) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return;
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+
+    // Parents should not record visits (read-only)
+    if (userType === 'parent') return;
 
     try {
       // Try to update existing record
@@ -798,7 +863,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   loadScenarioProgress: async () => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return new Map();
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
 
     const { data, error } = await supabase
       .from('scenario_progress')
@@ -825,7 +890,12 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
 
   resetScenarioProgress: async (scenarioId: number) => {
     const { userId, userType } = get();
-    if (!userId || userType !== 'user') return;
+    if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+
+    // Parents cannot reset (read-only)
+    if (userType === 'parent') {
+      throw new Error('Parents cannot reset progress. Please use the learner account.');
+    }
 
     try {
       // Delete all messages for this scenario
@@ -868,9 +938,11 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       userId: null,
       userType: null,
       adminUserId: null,
+      childUserId: null,
       scenarios: defaultScenarios,
       isAuthenticated: false,
-      isAdmin: false
+      isAdmin: false,
+      isParent: false
     });
   },
 }));

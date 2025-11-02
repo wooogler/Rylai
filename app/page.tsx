@@ -8,9 +8,10 @@ import Image from "next/image";
 
 const ADMIN_PASSWORD = "rylai2025";
 const USER_PASSWORD = "user2025";
+const PARENT_PASSWORD = "parent2025";
 
 type ButtonState = "start" | "existing" | "new";
-type UserType = "admin" | "user";
+type UserType = "admin" | "user" | "parent";
 
 export default function Home() {
   const [password, setPassword] = useState("");
@@ -33,6 +34,8 @@ export default function Home() {
       detectedUserType = "admin";
     } else if (password === USER_PASSWORD) {
       detectedUserType = "user";
+    } else if (password === PARENT_PASSWORD) {
+      detectedUserType = "parent";
     } else {
       setPasswordError(true);
       hasError = true;
@@ -52,11 +55,15 @@ export default function Home() {
     setIsChecking(true);
 
     try {
-      // Check if username exists in DB
+      // Check if username + userType combination exists in DB
+      // For parent type, check if child (user type) account exists
+      const targetUserType = detectedUserType === 'parent' ? 'user' : detectedUserType;
+
       const { data, error } = await supabase
         .from('users')
         .select('id, user_type')
         .eq('username', inputUsername)
+        .eq('user_type', targetUserType)
         .single();
 
       if (data && !error) {
@@ -80,20 +87,32 @@ export default function Home() {
   const handleProceed = async () => {
     const inputUsername = username.trim();
 
+    // Prevent parent from proceeding if no child account exists
+    if (userType === "parent" && buttonState === "new") {
+      alert(`No learner account found with username "${inputUsername}".\n\nYour child must first create an account using:\n• Username: ${inputUsername}\n• Password: user2025\n\nThen you can view their progress using the parent password.`);
+      return;
+    }
+
     try {
       // Pass userType to setCurrentUser
       await setCurrentUser(inputUsername, userType || "user");
-      await loadUserScenarios();
 
-      // User type: go to select-user to choose which admin's scenarios to use
+      // Only load scenarios for admin (user/parent will load after selecting educator)
+      if (userType !== "user" && userType !== "parent") {
+        await loadUserScenarios();
+      }
+
+      // User/Parent type: go to select-user to choose which admin's scenarios to use
       // Admin type: go directly to chat
-      if (userType === "user") {
+      if (userType === "user" || userType === "parent") {
         router.push("/select-user");
       } else {
         router.push("/chat/stage-1-friendship");
       }
     } catch (err) {
-      console.error("Error:", err);
+      console.error("Error during login/account creation:", err);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      alert(`Failed to login or create account:\n\n${errorMessage}`);
       setUsernameError(true);
     }
   };
@@ -103,6 +122,10 @@ export default function Home() {
       case "existing":
         return "Login";
       case "new":
+        // Parent cannot create account - must use existing child account
+        if (userType === "parent") {
+          return "Error: No Child Account";
+        }
         return "Create a chat";
       default:
         return "Start";
@@ -144,6 +167,8 @@ export default function Home() {
               <span className="font-semibold">For Educators:</span> Use password &quot;rylai2025&quot; to create and manage scenarios.
               <br />
               <span className="font-semibold">For Learners:</span> Use password &quot;user2025&quot; to practice with educator scenarios.
+              <br />
+              <span className="font-semibold">For Parents:</span> Use password &quot;parent2025&quot; to view your child&apos;s progress (use same username as your child).
             </p>
           </div>
         </div>
@@ -197,8 +222,12 @@ export default function Home() {
             )}
             <button
               onClick={buttonState === "start" ? handleStart : handleProceed}
-              disabled={isChecking}
-              className="px-8 py-4 bg-purple-600 text-white rounded-full font-semibold hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isChecking || (userType === "parent" && buttonState === "new")}
+              className={`px-8 py-4 rounded-full font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                userType === "parent" && buttonState === "new"
+                  ? "bg-red-600 text-white hover:bg-red-700"
+                  : "bg-purple-600 text-white hover:bg-purple-700"
+              }`}
             >
               {isChecking ? "Checking..." : getButtonText()}
             </button>
