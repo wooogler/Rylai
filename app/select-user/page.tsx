@@ -20,16 +20,19 @@ interface AdminWithProgress extends User {
 
 export default function SelectUserPage() {
   const router = useRouter();
-  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, userType, userId } = useScenarioStore();
+  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, userType, userId, isAuthenticated } = useScenarioStore();
   const [users, setUsers] = useState<User[]>([]);
   const [adminsWithProgress, setAdminsWithProgress] = useState<AdminWithProgress[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
 
   useEffect(() => {
-    loadUsersWithProgress();
+    // Wait for authentication state to be loaded from persist store
+    if (isAuthenticated && userType !== null) {
+      loadUsersWithProgress();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthenticated, userType, userId]);
 
   const loadUsersWithProgress = async () => {
     try {

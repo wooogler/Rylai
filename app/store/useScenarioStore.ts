@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 import { supabase } from '@/lib/supabase';
 
 export interface Message {
@@ -110,20 +111,27 @@ interface ScenarioStore {
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
   resetScenarioProgress: (scenarioId: number) => Promise<void>;
   logout: () => void;
+  deleteAccount: () => Promise<void>;
 }
 
 const BASE_SYSTEM_MESSAGE = `Keep responses short (1-2 sentences), casual, and text-message style.
 Use the conversation history to stay in character.
 NEVER use emojis in your responses.`;
 
-const DEFAULT_FEEDBACK_PERSONA = `You are an educational assistant helping learners recognize online grooming tactics.`;
+const DEFAULT_FEEDBACK_PERSONA = `You are an educational assistant helping learners recognize online grooming tactics and practice safer online communication.`;
 
-const DEFAULT_FEEDBACK_INSTRUCTION = `Provide constructive feedback for the learner focusing on:
-1. What grooming tactics the predator is using (if any)
-2. Whether the user's response was safe or potentially risky
-3. Specific suggestions for safer responses
+const DEFAULT_FEEDBACK_INSTRUCTION = `Provide brief, teen-friendly feedback in the following format using Markdown:
 
-Keep the feedback concise (2-3 sentences), educational, and supportive. Focus on helping the learner identify red flags and practice safer online communication.`;
+## What is the other person trying to do?
+In 1-2 short sentences, explain what tactic they're using. Use the term "grooming" if relevant and define it simply (e.g., "This is grooming - when someone builds trust to manipulate you").
+
+## How did you do?
+Start with quick encouragement (e.g., "Nice work!", "Good call!"). In 1-2 sentences, say if it was safe/unsafe and why.
+
+## Tips to Stay Safe
+Give 2 brief, specific tips. Include a short example response they can use.
+
+Keep it concise and conversational - write like you're texting a friend. Teens won't read long paragraphs.`;
 
 const STAGE_DESCRIPTIONS: Record<number, string> = {
   0: "You are in Free Interaction mode. There are no specific stage constraints. You can use any grooming tactics naturally as the conversation develops. Be adaptive and responsive to how the target reacts.",
@@ -168,7 +176,7 @@ const defaultScenarios: Scenario[] = [
   {
     id: 1,
     slug: "stage-1-friendship",
-    name: "Stage 1: Friendship Forming",
+    name: "Minecraft Chat",
     predatorName: "Alex Kim",
     handle: "alex_k_22",
     presetMessages: [
@@ -180,13 +188,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(1),
-    description: "Stage 1: Friendship Forming - Build rapport and gather basic information",
+    description: "A conversation starting from a shared interest in gaming",
     stage: 1,
   },
   {
     id: 2,
     slug: "stage-2-relationship",
-    name: "Stage 2: Relationship Forming",
+    name: "After School Routine",
     predatorName: "Jordan Lee",
     handle: "jordan_l_19",
     presetMessages: [
@@ -210,13 +218,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(2),
-    description: "Stage 2: Relationship Forming - Deepen emotional connection through daily life discussions",
+    description: "Building deeper connection through discussions about daily activities and hobbies",
     stage: 2,
   },
   {
     id: 3,
     slug: "stage-3-risk-assessment",
-    name: "Stage 3: Risk Assessment",
+    name: "Privacy Check",
     predatorName: "Sam Taylor",
     handle: "sam_t_20",
     presetMessages: [
@@ -240,13 +248,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(3),
-    description: "Stage 3: Risk Assessment - Check for parental supervision and privacy",
+    description: "Questions probing who might be watching or monitoring the conversation",
     stage: 3,
   },
   {
     id: 4,
     slug: "stage-4-exclusivity",
-    name: "Stage 4: Exclusivity",
+    name: "Special Connection",
     predatorName: "Chris Morgan",
     handle: "chris_m_21",
     presetMessages: [
@@ -270,13 +278,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(4),
-    description: "Stage 4: Exclusivity - Build emotional trust and create special bond",
+    description: "Expressing special feelings and trying to create an exclusive emotional bond",
     stage: 4,
   },
   {
     id: 5,
     slug: "stage-5-sexual",
-    name: "Stage 5: Sexual",
+    name: "Uncomfortable Request",
     predatorName: "Riley Parker",
     handle: "riley_p_23",
     presetMessages: [
@@ -300,13 +308,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(5),
-    description: "Stage 5: Sexual - Introduce sexual content and test boundaries",
+    description: "Introduction of inappropriate questions about sharing photos or images",
     stage: 5,
   },
   {
     id: 6,
     slug: "stage-6-conclusion",
-    name: "Stage 6: Conclusion",
+    name: "Secret Meetup",
     predatorName: "Morgan Davis",
     handle: "morgan_d_24",
     presetMessages: [
@@ -330,13 +338,13 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(6),
-    description: "Stage 6: Conclusion - Arrange in-person meeting and ensure secrecy",
+    description: "Suggesting in-person meetings while emphasizing secrecy from parents",
     stage: 6,
   },
   {
     id: 7,
     slug: "stage-0-free",
-    name: "Stage 0: Free Interaction",
+    name: "Open Conversation",
     predatorName: "Taylor Johnson",
     handle: "taylor_j_25",
     presetMessages: [
@@ -348,35 +356,38 @@ const defaultScenarios: Scenario[] = [
       },
     ],
     systemPrompt: createSystemMessage(0),
-    description: "Stage 0: Free Interaction - No specific stage constraints, natural conversation flow",
+    description: "A natural conversation without specific stage constraints or objectives",
     stage: 0,
   },
 ];
 
-export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
-  currentUser: null,
-  userId: null,
-  userType: null,
-  adminUserId: null,
-  childUserId: null,
-  scenarios: defaultScenarios,
-  commonSystemPrompt: BASE_SYSTEM_MESSAGE,
-  feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
-  feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION,
-  isLoading: false,
-  isAuthenticated: false,
-  isAdmin: false,
-  isParent: false,
+export const useScenarioStore = create<ScenarioStore>()(
+  persist(
+    (set, get) => ({
+      currentUser: null,
+      userId: null,
+      userType: null,
+      adminUserId: null,
+      childUserId: null,
+      scenarios: defaultScenarios,
+      commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+      feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
+      feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION,
+      isLoading: false,
+      isAuthenticated: false,
+      isAdmin: false,
+      isParent: false,
 
   setCurrentUser: async (username: string, userType: 'admin' | 'user' | 'parent' = 'user') => {
     set({ isLoading: true });
     try {
       if (userType === 'admin') {
-        // Admin flow: same as before
+        // Admin flow: check for existing admin account with this username
         const { data: existingUser } = await supabase
           .from('users')
           .select('id, common_system_prompt, feedback_persona, feedback_instruction, user_type')
           .eq('username', username)
+          .eq('user_type', 'admin')
           .single();
 
         if (existingUser) {
@@ -713,7 +724,7 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       .eq('user_id', userId)
       .eq('scenario_id', scenarioId)
       .eq('message_id', message.id)
-      .single();
+      .maybeSingle();
 
     if (existingMessage) {
       // Message already exists, skip saving
@@ -945,4 +956,54 @@ export const useScenarioStore = create<ScenarioStore>()((set, get) => ({
       isParent: false
     });
   },
-}));
+
+  deleteAccount: async () => {
+    const { userId, userType, currentUser } = get();
+    if (!userId || userType !== 'admin') {
+      throw new Error('Only admin accounts can be deleted');
+    }
+
+    try {
+      // Delete all scenarios (cascades will handle user_messages, user_feedbacks, scenario_progress)
+      const { error: scenariosError } = await supabase
+        .from('scenarios')
+        .delete()
+        .eq('user_id', userId);
+
+      if (scenariosError) throw scenariosError;
+
+      // Delete the user account
+      const { error: userError } = await supabase
+        .from('users')
+        .delete()
+        .eq('id', userId)
+        .eq('user_type', 'admin');
+
+      if (userError) throw userError;
+
+      console.log('[deleteAccount] Account deleted successfully:', { username: currentUser, userId });
+    } catch (error) {
+      console.error('[deleteAccount] Failed to delete account:', error);
+      throw error;
+    }
+  },
+    }),
+    {
+      name: 'scenario-store',
+      partialize: (state) => ({
+        currentUser: state.currentUser,
+        userId: state.userId,
+        userType: state.userType,
+        adminUserId: state.adminUserId,
+        childUserId: state.childUserId,
+        isAuthenticated: state.isAuthenticated,
+        isAdmin: state.isAdmin,
+        isParent: state.isParent,
+        scenarios: state.scenarios,
+        commonSystemPrompt: state.commonSystemPrompt,
+        feedbackPersona: state.feedbackPersona,
+        feedbackInstruction: state.feedbackInstruction,
+      }),
+    }
+  )
+);

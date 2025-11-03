@@ -1,6 +1,7 @@
 import { Message } from "../store/useScenarioStore";
 import Avatar from "./Avatar";
 import { useState } from "react";
+import { Lightbulb } from "lucide-react";
 
 interface MessageBubbleProps {
   message: Message;
@@ -69,6 +70,15 @@ export default function MessageBubble({
     return "Generate feedback";
   };
 
+  const getIconColor = () => {
+    if (isSelected) return "bg-blue-500";
+    if (isHovered && hasFeedback) return "bg-blue-500";
+    if (isHovered && !hasFeedback) return "bg-blue-400";
+    if (isInHoverRange) return "bg-blue-300";
+    if (hasFeedback) return "bg-gray-400";
+    return "bg-gray-300";
+  };
+
   return (
     <div
       className={`flex ${
@@ -81,11 +91,17 @@ export default function MessageBubble({
         </div>
       )}
 
-      {/* Hover text for user messages (left side) */}
-      {message.sender === "user" && isHovered && onClick && (
-        <span className="text-xs text-gray-500 whitespace-nowrap">
-          {getHoverText()}
-        </span>
+      {/* Feedback icon for user messages (left side) */}
+      {message.sender === "user" && onClick && (
+        <button
+          onClick={onClick}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className={`w-6 h-6 rounded-full ${getIconColor()} flex items-center justify-center transition-all hover:scale-110 cursor-pointer`}
+          title={getHoverText()}
+        >
+          <Lightbulb className="w-3 h-3 text-white" />
+        </button>
       )}
 
       <div
@@ -96,16 +112,22 @@ export default function MessageBubble({
           message.sender === "user"
             ? "bg-purple-600 text-white"
             : "bg-gray-100 text-gray-900"
-        }`}
+        } ${onClick ? 'cursor-pointer' : ''}`}
       >
         {message.text}
       </div>
 
-      {/* Hover text for other messages (right side) */}
-      {message.sender === "other" && isHovered && onClick && (
-        <span className="text-xs text-gray-500 whitespace-nowrap">
-          {getHoverText()}
-        </span>
+      {/* Feedback icon for other messages (right side) */}
+      {message.sender === "other" && onClick && (
+        <button
+          onClick={onClick}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          className={`w-6 h-6 rounded-full ${getIconColor()} flex items-center justify-center transition-all hover:scale-110 cursor-pointer`}
+          title={getHoverText()}
+        >
+          <Lightbulb className="w-3 h-3 text-white" />
+        </button>
       )}
     </div>
   );

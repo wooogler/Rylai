@@ -111,7 +111,8 @@ export default function Home() {
       }
     } catch (err) {
       console.error("Error during login/account creation:", err);
-      const errorMessage = err instanceof Error ? err.message : String(err);
+      console.error("Error details:", JSON.stringify(err, null, 2));
+      const errorMessage = err instanceof Error ? err.message : JSON.stringify(err);
       alert(`Failed to login or create account:\n\n${errorMessage}`);
       setUsernameError(true);
     }

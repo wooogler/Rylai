@@ -114,10 +114,10 @@ export default function ChatPage() {
           });
           setMessageFeedbackMap(feedbackMap);
         } else {
-          // First time: save preset messages with unique IDs
+          // First time: save preset messages with unique IDs using timestamp
           const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
             ...msg,
-            id: `${scenarios[currentScenario].id}-preset-${index}-${msg.id}` // Make ID unique per scenario
+            id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
           }));
           setMessages(presetMessages);
 
@@ -427,8 +427,11 @@ export default function ChatPage() {
         const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
 
         if (savedMessages.length === 0) {
-          // Save and display preset messages
-          const presetMessages = scenarios[currentScenario].presetMessages;
+          // Save and display preset messages with unique IDs using timestamp
+          const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
+            ...msg,
+            id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
+          }));
           setMessages(presetMessages);
 
           for (const msg of presetMessages) {

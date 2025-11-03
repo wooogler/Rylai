@@ -30,12 +30,14 @@ export default function AdminPage() {
     feedbackInstruction,
     isAdmin,
     isAuthenticated,
+    currentUser,
     logout,
     addScenario,
     deleteScenario,
     updateScenario,
     setCommonSystemPrompt,
-    setFeedbackPrompts
+    setFeedbackPrompts,
+    deleteAccount
   } = useScenarioStore();
 
   // Redirect if not authenticated or not admin
@@ -229,13 +231,54 @@ export default function AdminPage() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!confirm(
+      `⚠️ WARNING: Delete Account "${currentUser}"?\n\n` +
+      `This will PERMANENTLY delete:\n` +
+      `• Your admin account\n` +
+      `• All ${scenarios.length} scenarios\n` +
+      `• All learner progress data\n` +
+      `• All messages and feedback\n\n` +
+      `This action CANNOT be undone!\n\n` +
+      `Type "DELETE" to confirm.`
+    )) {
+      return;
+    }
+
+    const confirmation = prompt('Type "DELETE" to confirm account deletion:');
+    if (confirmation !== "DELETE") {
+      alert("Account deletion cancelled.");
+      return;
+    }
+
+    try {
+      await deleteAccount();
+      alert("Account deleted successfully.");
+      logout();
+      router.push("/");
+    } catch (error) {
+      console.error("Failed to delete account:", error);
+      alert("Failed to delete account. Please try again.");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
-            <div></div>
+            <div>
+              <Button
+                onClick={handleDeleteAccount}
+                variant="ghost"
+                size="small"
+                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-1.5 inline" />
+                Delete Account
+              </Button>
+            </div>
             <div className="flex gap-2">
               <Button
                 onClick={handleExport}
