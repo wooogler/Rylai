@@ -14,7 +14,6 @@ export interface AIModel {
 }
 
 export const AI_MODELS: AIModel[] = [
-  // OpenAI Models (via OpenRouter or direct)
   {
     id: 'gpt-4o',
     name: 'GPT-4o',
@@ -24,110 +23,36 @@ export const AI_MODELS: AIModel[] = [
     contextWindow: 128000,
   },
   {
-    id: 'gpt-4-turbo',
-    name: 'GPT-4 Turbo',
+    id: 'mistral-7b-instruct',
+    name: 'Mistral 7B Instruct',
     provider: 'openrouter',
-    modelId: 'openai/gpt-4-turbo',
-    description: 'GPT-4 Turbo with vision',
-    contextWindow: 128000,
+    modelId: 'mistralai/mistral-7b-instruct-v0.3',
+    description: 'Mistral 7B Instruct model',
+    contextWindow: 32768,
   },
   {
-    id: 'gpt-3.5-turbo',
-    name: 'GPT-3.5 Turbo',
+    id: 'grok-4.1-fast',
+    name: 'Grok 4.1 Fast',
     provider: 'openrouter',
-    modelId: 'openai/gpt-3.5-turbo',
-    description: 'Fast and cost-effective',
-    contextWindow: 16385,
-  },
-
-  // Anthropic Models (via OpenRouter)
-  {
-    id: 'claude-3.5-sonnet',
-    name: 'Claude 3.5 Sonnet',
-    provider: 'openrouter',
-    modelId: 'anthropic/claude-3.5-sonnet',
-    description: 'Latest Claude Sonnet',
-    contextWindow: 200000,
-  },
-  {
-    id: 'claude-3-opus',
-    name: 'Claude 3 Opus',
-    provider: 'openrouter',
-    modelId: 'anthropic/claude-3-opus',
-    description: 'Most capable Claude model',
-    contextWindow: 200000,
-  },
-  {
-    id: 'claude-3-haiku',
-    name: 'Claude 3 Haiku',
-    provider: 'openrouter',
-    modelId: 'anthropic/claude-3-haiku',
-    description: 'Fast and efficient',
-    contextWindow: 200000,
-  },
-
-  // Google Models (via OpenRouter)
-  {
-    id: 'gemini-pro-1.5',
-    name: 'Gemini 1.5 Pro',
-    provider: 'openrouter',
-    modelId: 'google/gemini-pro-1.5',
-    description: 'Google\'s latest model',
-    contextWindow: 2000000,
-  },
-  {
-    id: 'gemini-flash-1.5',
-    name: 'Gemini 1.5 Flash',
-    provider: 'openrouter',
-    modelId: 'google/gemini-flash-1.5',
-    description: 'Fast and efficient',
-    contextWindow: 1000000,
-  },
-
-  // Meta Models (via OpenRouter)
-  {
-    id: 'llama-3.1-70b',
-    name: 'Llama 3.1 70B',
-    provider: 'openrouter',
-    modelId: 'meta-llama/llama-3.1-70b-instruct',
-    description: 'Meta\'s powerful open model',
+    modelId: 'x-ai/grok-4.1-fast',
+    description: 'xAI Grok 4.1 Fast model',
     contextWindow: 131072,
   },
   {
-    id: 'llama-3.1-8b',
-    name: 'Llama 3.1 8B',
+    id: 'gemini-2.0-flash',
+    name: 'Gemini 2.0 Flash',
     provider: 'openrouter',
-    modelId: 'meta-llama/llama-3.1-8b-instruct',
-    description: 'Smaller, faster Llama',
-    contextWindow: 131072,
-  },
-
-  // Mistral Models (via OpenRouter)
-  {
-    id: 'mistral-large',
-    name: 'Mistral Large',
-    provider: 'openrouter',
-    modelId: 'mistralai/mistral-large',
-    description: 'Mistral\'s flagship model',
-    contextWindow: 128000,
+    modelId: 'google/gemini-2.0-flash-001',
+    description: 'Google Gemini 2.0 Flash',
+    contextWindow: 1048576,
   },
   {
-    id: 'mistral-medium',
-    name: 'Mistral Medium',
+    id: 'deepseek-v3.2',
+    name: 'DeepSeek V3.2',
     provider: 'openrouter',
-    modelId: 'mistralai/mistral-medium',
-    description: 'Balanced performance',
-    contextWindow: 32000,
-  },
-
-  // Local Model Option
-  {
-    id: 'local-mistral-7b',
-    name: 'Local Mistral 7B',
-    provider: 'local',
-    modelId: 'mistral-7b-instruct-v0.3',
-    description: 'Self-hosted local model',
-    contextWindow: 8192,
+    modelId: 'deepseek/deepseek-v3.2',
+    description: 'DeepSeek V3.2 model',
+    contextWindow: 65536,
   },
 ];
 

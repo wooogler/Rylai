@@ -23,10 +23,12 @@ RYLAI is an educational web application that simulates realistic chat conversati
 - **UI**: React 19, Tailwind CSS 4, Lucide Icons
 - **State Management**: Zustand with persist middleware
 - **Database**: SQLite with Drizzle ORM
-- **AI**: OpenRouter (supports 13+ models from OpenAI, Anthropic, Google, Meta, Mistral) or Local Mistral-7B
+- **AI**: OpenRouter (supports 5 models: GPT-4o, Mistral 7B, Grok 4.1, Gemini 2.0, DeepSeek V3.2)
 - **Deployment**: Docker + Docker Compose
 
 ## Getting Started
+
+**📘 For detailed deployment instructions in Korean, see [DEPLOYMENT.md](DEPLOYMENT.md)**
 
 ### Prerequisites
 
@@ -258,34 +260,24 @@ The application simulates 7 stages of online grooming:
 
 ## AI Models
 
-RYLAI supports multiple AI models through OpenRouter, allowing you to choose the best model for your needs:
+RYLAI supports multiple AI models through OpenRouter:
 
 ### Supported Models
 
-**OpenAI Models** (via OpenRouter):
-- GPT-4o - Latest GPT-4 Omni model (default)
-- GPT-4 Turbo - GPT-4 Turbo with vision
-- GPT-3.5 Turbo - Fast and cost-effective
+1. **GPT-4o** (OpenAI) - Latest GPT-4 Omni model (default)
+   - Context: 128K tokens
 
-**Anthropic Models** (via OpenRouter):
-- Claude 3.5 Sonnet - Latest Claude Sonnet
-- Claude 3 Opus - Most capable Claude model
-- Claude 3 Haiku - Fast and efficient
+2. **Mistral 7B Instruct** (Mistral AI)
+   - Context: 32K tokens
 
-**Google Models** (via OpenRouter):
-- Gemini 1.5 Pro - Google's latest model
-- Gemini 1.5 Flash - Fast and efficient
+3. **Grok 4.1 Fast** (xAI)
+   - Context: 131K tokens
 
-**Meta Models** (via OpenRouter):
-- Llama 3.1 70B - Meta's powerful open model
-- Llama 3.1 8B - Smaller, faster Llama
+4. **Gemini 2.0 Flash** (Google)
+   - Context: 1M tokens
 
-**Mistral Models** (via OpenRouter):
-- Mistral Large - Mistral's flagship model
-- Mistral Medium - Balanced performance
-
-**Local Option**:
-- Local Mistral 7B - Self-hosted local model
+5. **DeepSeek V3.2** (DeepSeek)
+   - Context: 65K tokens
 
 ### Selecting Models
 
@@ -303,11 +295,11 @@ Users can select their preferred AI model from the dropdown menu in the chat int
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | No | `./data/rylai.db` | SQLite database file path |
-| `OPENROUTER_API_KEY` | Recommended | - | OpenRouter API key (supports 13+ models) |
+| `OPENROUTER_API_KEY` | Recommended | - | OpenRouter API key (supports 5 models) |
 | `OPENAI_API_KEY` | No | - | OpenAI API key (for direct OpenAI access) |
 | `NEXT_PUBLIC_USE_LOCAL_API` | No | `false` | Use local Mistral-7b instead of cloud APIs |
 
-**Note**: You need either `OPENROUTER_API_KEY` or `OPENAI_API_KEY` configured, unless using local API. OpenRouter is recommended as it provides access to multiple AI models from different providers.
+**Note**: You need `OPENROUTER_API_KEY` configured. OpenRouter is required as it provides access to all 5 supported AI models.
 
 ## Troubleshooting
 
