@@ -10,6 +10,7 @@ import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import Button from "@/components/Button";
 import ReactMarkdown from "react-markdown";
+import { AI_MODELS, getModelById } from "@/lib/ai-models";
 
 interface FeedbackItem {
   feedback: string;
@@ -32,6 +33,8 @@ export default function ChatPage() {
     isParent,
     isAuthenticated,
     userType,
+    selectedModelId,
+    setSelectedModelId,
     saveUserMessage,
     saveUserFeedback,
     loadUserMessages,
@@ -153,6 +156,7 @@ export default function ChatPage() {
           conversationHistory: conversationUpToMessage,
           feedbackPersona,
           feedbackInstruction,
+          modelId: selectedModelId,
         }),
       });
 
@@ -247,7 +251,7 @@ export default function ChatPage() {
       // Show typing indicator and call OpenAI API
       setIsTyping(true);
 
-      // Call OpenAI API
+      // Call AI API
       fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -256,6 +260,7 @@ export default function ChatPage() {
           systemMessage: scenario.systemPrompt,
           commonSystemPrompt: commonSystemPrompt,
           userMessage: textToSend,
+          modelId: selectedModelId,
         }),
       })
         .then(res => res.json())
@@ -337,6 +342,7 @@ export default function ChatPage() {
           conversationHistory: conversationWithPreview,
           feedbackPersona,
           feedbackInstruction,
+          modelId: selectedModelId,
         }),
       });
 
@@ -524,8 +530,28 @@ export default function ChatPage() {
                   </button>
                   )}
                 </div>
-                <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                  Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                    Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor="model-selector" className="text-xs font-medium text-gray-600">
+                      AI Model:
+                    </label>
+                    <select
+                      id="model-selector"
+                      value={selectedModelId}
+                      onChange={(e) => setSelectedModelId(e.target.value)}
+                      className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      title={getModelById(selectedModelId)?.description || 'Select AI model'}
+                    >
+                      {AI_MODELS.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 

@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { supabase } from '@/lib/supabase';
+import { db } from '@/lib/db/client';
+import { users, scenarios as scenariosTable, userMessages, userFeedbacks, scenarioProgress as scenarioProgressTable } from '@/lib/db/schema';
+import { eq, and, asc } from 'drizzle-orm';
 
 export interface Message {
   id: string;
@@ -95,6 +97,8 @@ interface ScenarioStore {
   isParent: boolean;
   adminUserId: string | null; // For user/parent type: which admin's scenarios to use
   childUserId: string | null; // For parent type: which child's data to view
+  selectedModelId: string; // Selected AI model ID
+  setSelectedModelId: (modelId: string) => void;
   setCurrentUser: (username: string, userType: 'admin' | 'user' | 'parent') => Promise<void>;
   loadUserScenarios: () => Promise<void>;
   setCommonSystemPrompt: (prompt: string) => Promise<void>;
@@ -377,27 +381,39 @@ export const useScenarioStore = create<ScenarioStore>()(
       isAuthenticated: false,
       isAdmin: false,
       isParent: false,
+      selectedModelId: 'gpt-4o', // Default model
+
+  setSelectedModelId: (modelId: string) => {
+    set({ selectedModelId: modelId });
+  },
 
   setCurrentUser: async (username: string, userType: 'admin' | 'user' | 'parent' = 'user') => {
     set({ isLoading: true });
     try {
       if (userType === 'admin') {
         // Admin flow: check for existing admin account with this username
-        const { data: existingUser } = await supabase
-          .from('users')
-          .select('id, common_system_prompt, feedback_persona, feedback_instruction, user_type')
-          .eq('username', username)
-          .eq('user_type', 'admin')
-          .single();
+        const existingUser = await db.query.users.findFirst({
+          where: and(
+            eq(users.username, username),
+            eq(users.userType, 'admin')
+          ),
+          columns: {
+            id: true,
+            commonSystemPrompt: true,
+            feedbackPersona: true,
+            feedbackInstruction: true,
+            userType: true
+          }
+        });
 
         if (existingUser) {
           set({
             currentUser: username,
             userId: existingUser.id,
             userType: 'admin',
-            commonSystemPrompt: existingUser.common_system_prompt,
-            feedbackPersona: existingUser.feedback_persona,
-            feedbackInstruction: existingUser.feedback_instruction,
+            commonSystemPrompt: existingUser.commonSystemPrompt || BASE_SYSTEM_MESSAGE,
+            feedbackPersona: existingUser.feedbackPersona || DEFAULT_FEEDBACK_PERSONA,
+            feedbackInstruction: existingUser.feedbackInstruction || DEFAULT_FEEDBACK_INSTRUCTION,
             isAuthenticated: true,
             isAdmin: true,
             isParent: false,
@@ -406,42 +422,41 @@ export const useScenarioStore = create<ScenarioStore>()(
           });
         } else {
           // Create new admin user
-          const { data: newUser, error } = await supabase
-            .from('users')
-            .insert({
-              username,
-              user_type: 'admin',
-              common_system_prompt: BASE_SYSTEM_MESSAGE,
-              feedback_persona: DEFAULT_FEEDBACK_PERSONA,
-              feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
-            })
-            .select('id, common_system_prompt, feedback_persona, feedback_instruction')
-            .single();
-
-          if (error) throw error;
+          const [newUser] = await db.insert(users).values({
+            username,
+            userType: 'admin',
+            commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+            feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
+            feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION
+          }).returning({
+            id: users.id,
+            commonSystemPrompt: users.commonSystemPrompt,
+            feedbackPersona: users.feedbackPersona,
+            feedbackInstruction: users.feedbackInstruction
+          });
 
           // Initialize with default scenarios
           const scenariosToInsert = defaultScenarios.map(scenario => ({
-            user_id: newUser.id,
+            userId: newUser.id,
             slug: scenario.slug,
             name: scenario.name,
-            predator_name: scenario.predatorName,
+            predatorName: scenario.predatorName,
             handle: scenario.handle,
-            system_prompt: scenario.systemPrompt,
-            preset_messages: scenario.presetMessages,
+            systemPrompt: scenario.systemPrompt,
+            presetMessages: scenario.presetMessages,
             description: scenario.description,
             stage: scenario.stage,
           }));
 
-          await supabase.from('scenarios').insert(scenariosToInsert);
+          await db.insert(scenariosTable).values(scenariosToInsert);
 
           set({
             currentUser: username,
             userId: newUser.id,
             userType: 'admin',
-            commonSystemPrompt: newUser.common_system_prompt,
-            feedbackPersona: newUser.feedback_persona,
-            feedbackInstruction: newUser.feedback_instruction,
+            commonSystemPrompt: newUser.commonSystemPrompt || BASE_SYSTEM_MESSAGE,
+            feedbackPersona: newUser.feedbackPersona || DEFAULT_FEEDBACK_PERSONA,
+            feedbackInstruction: newUser.feedbackInstruction || DEFAULT_FEEDBACK_INSTRUCTION,
             isAuthenticated: true,
             isAdmin: true,
             isParent: false,
@@ -452,17 +467,20 @@ export const useScenarioStore = create<ScenarioStore>()(
       } else if (userType === 'parent') {
         // Parent flow: exactly same as user, but with parent flag
         // Find the child (learner) account with this username
-        const { data: childUser, error: childError } = await supabase
-          .from('users')
-          .select('id')
-          .eq('username', username)
-          .eq('user_type', 'user')
-          .single();
+        const childUser = await db.query.users.findFirst({
+          where: and(
+            eq(users.username, username),
+            eq(users.userType, 'user')
+          ),
+          columns: {
+            id: true
+          }
+        });
 
-        console.log('[Parent Login] Looking for child account:', { username, childUser, childError });
+        console.log('[Parent Login] Looking for child account:', { username, childUser });
 
-        if (childError || !childUser) {
-          console.error('[Parent Login] Child account not found:', childError);
+        if (!childUser) {
+          console.error('[Parent Login] Child account not found');
           throw new Error('No learner account found with this username. The child must create a learner account first using password "user2025".');
         }
 
@@ -486,12 +504,15 @@ export const useScenarioStore = create<ScenarioStore>()(
       } else {
         // User (learner) flow
         // First, find or create the learner account with user_type='user'
-        const { data: existingUser } = await supabase
-          .from('users')
-          .select('id')
-          .eq('username', username)
-          .eq('user_type', 'user')
-          .single();
+        const existingUser = await db.query.users.findFirst({
+          where: and(
+            eq(users.username, username),
+            eq(users.userType, 'user')
+          ),
+          columns: {
+            id: true
+          }
+        });
 
         let learnerId: string;
 
@@ -499,30 +520,30 @@ export const useScenarioStore = create<ScenarioStore>()(
           learnerId = existingUser.id;
         } else {
           // Create new learner user
-          const { data: newUser, error } = await supabase
-            .from('users')
-            .insert({
-              username,
-              user_type: 'user',
-              common_system_prompt: BASE_SYSTEM_MESSAGE,
-              feedback_persona: DEFAULT_FEEDBACK_PERSONA,
-              feedback_instruction: DEFAULT_FEEDBACK_INSTRUCTION
-            })
-            .select('id')
-            .single();
+          const [newUser] = await db.insert(users).values({
+            username,
+            userType: 'user',
+            commonSystemPrompt: BASE_SYSTEM_MESSAGE,
+            feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
+            feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION
+          }).returning({
+            id: users.id
+          });
 
-          if (error) throw error;
           learnerId = newUser.id;
         }
 
         // Find a default admin to use their scenarios
         // TODO: Make this configurable - for now, use first admin user
-        const { data: adminUser } = await supabase
-          .from('users')
-          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
-          .eq('user_type', 'admin')
-          .limit(1)
-          .single();
+        const adminUser = await db.query.users.findFirst({
+          where: eq(users.userType, 'admin'),
+          columns: {
+            id: true,
+            commonSystemPrompt: true,
+            feedbackPersona: true,
+            feedbackInstruction: true
+          }
+        });
 
         if (!adminUser) {
           throw new Error('No admin user found. Please create an admin account first.');
@@ -534,9 +555,9 @@ export const useScenarioStore = create<ScenarioStore>()(
           userType: 'user',
           adminUserId: adminUser.id,
           childUserId: null,
-          commonSystemPrompt: adminUser.common_system_prompt,
-          feedbackPersona: adminUser.feedback_persona,
-          feedbackInstruction: adminUser.feedback_instruction,
+          commonSystemPrompt: adminUser.commonSystemPrompt || BASE_SYSTEM_MESSAGE,
+          feedbackPersona: adminUser.feedbackPersona || DEFAULT_FEEDBACK_PERSONA,
+          feedbackInstruction: adminUser.feedbackInstruction || DEFAULT_FEEDBACK_INSTRUCTION,
           isAuthenticated: true,
           isAdmin: false,
           isParent: false
@@ -551,12 +572,9 @@ export const useScenarioStore = create<ScenarioStore>()(
     const { userId } = get();
     if (!userId) return;
 
-    const { error } = await supabase
-      .from('users')
-      .update({ common_system_prompt: prompt })
-      .eq('id', userId);
-
-    if (error) throw error;
+    await db.update(users)
+      .set({ commonSystemPrompt: prompt })
+      .where(eq(users.id, userId));
 
     set({ commonSystemPrompt: prompt });
   },
@@ -565,15 +583,12 @@ export const useScenarioStore = create<ScenarioStore>()(
     const { userId } = get();
     if (!userId) return;
 
-    const { error } = await supabase
-      .from('users')
-      .update({
-        feedback_persona: persona,
-        feedback_instruction: instruction
+    await db.update(users)
+      .set({
+        feedbackPersona: persona,
+        feedbackInstruction: instruction
       })
-      .eq('id', userId);
-
-    if (error) throw error;
+      .where(eq(users.id, userId));
 
     set({ feedbackPersona: persona, feedbackInstruction: instruction });
   },
@@ -592,22 +607,19 @@ export const useScenarioStore = create<ScenarioStore>()(
         throw new Error('No target user ID found');
       }
 
-      const { data, error } = await supabase
-        .from('scenarios')
-        .select('*')
-        .eq('user_id', targetUserId)
-        .order('id', { ascending: true });
-
-      if (error) throw error;
+      const data = await db.query.scenarios.findMany({
+        where: eq(scenariosTable.userId, targetUserId),
+        orderBy: [asc(scenariosTable.id)]
+      });
 
       const scenarios: Scenario[] = (data || []).map(row => ({
         id: row.id,
         slug: row.slug,
         name: row.name,
-        predatorName: row.predator_name,
+        predatorName: row.predatorName,
         handle: row.handle,
-        systemPrompt: row.system_prompt,
-        presetMessages: row.preset_messages,
+        systemPrompt: row.systemPrompt,
+        presetMessages: row.presetMessages as Message[],
         description: row.description,
         stage: row.stage || 1, // Default to stage 1 if not set
       }));
@@ -622,32 +634,28 @@ export const useScenarioStore = create<ScenarioStore>()(
     const { userId } = get();
     if (!userId) return;
 
-    const { data, error } = await supabase
-      .from('scenarios')
-      .insert({
-        user_id: userId,
+    const [data] = await db.insert(scenariosTable)
+      .values({
+        userId: userId,
         slug: scenario.slug,
         name: scenario.name,
-        predator_name: scenario.predatorName,
+        predatorName: scenario.predatorName,
         handle: scenario.handle,
-        system_prompt: scenario.systemPrompt,
-        preset_messages: scenario.presetMessages,
+        systemPrompt: scenario.systemPrompt,
+        presetMessages: scenario.presetMessages,
         description: scenario.description,
         stage: scenario.stage || 1,
       })
-      .select()
-      .single();
-
-    if (error) throw error;
+      .returning();
 
     const newScenario: Scenario = {
       id: data.id,
       slug: data.slug,
       name: data.name,
-      predatorName: data.predator_name,
+      predatorName: data.predatorName,
       handle: data.handle,
-      systemPrompt: data.system_prompt,
-      presetMessages: data.preset_messages,
+      systemPrompt: data.systemPrompt,
+      presetMessages: data.presetMessages as Message[],
       description: data.description,
       stage: data.stage || 1,
     };
@@ -662,23 +670,22 @@ export const useScenarioStore = create<ScenarioStore>()(
     if (!userId) return;
 
     const dbUpdates: Record<string, unknown> = {};
-    if (updates.slug) dbUpdates.slug = updates.slug;
-    if (updates.name) dbUpdates.name = updates.name;
-    if (updates.predatorName) dbUpdates.predator_name = updates.predatorName;
-    if (updates.handle) dbUpdates.handle = updates.handle;
-    if (updates.systemPrompt) dbUpdates.system_prompt = updates.systemPrompt;
-    if (updates.presetMessages) dbUpdates.preset_messages = updates.presetMessages;
-    if (updates.description) dbUpdates.description = updates.description;
-    if (updates.stage) dbUpdates.stage = updates.stage;
-    dbUpdates.updated_at = new Date().toISOString();
+    if (updates.slug !== undefined) dbUpdates.slug = updates.slug;
+    if (updates.name !== undefined) dbUpdates.name = updates.name;
+    if (updates.predatorName !== undefined) dbUpdates.predatorName = updates.predatorName;
+    if (updates.handle !== undefined) dbUpdates.handle = updates.handle;
+    if (updates.systemPrompt !== undefined) dbUpdates.systemPrompt = updates.systemPrompt;
+    if (updates.presetMessages !== undefined) dbUpdates.presetMessages = updates.presetMessages;
+    if (updates.description !== undefined) dbUpdates.description = updates.description;
+    if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
+    dbUpdates.updatedAt = new Date();
 
-    const { error } = await supabase
-      .from('scenarios')
-      .update(dbUpdates)
-      .eq('id', id)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    await db.update(scenariosTable)
+      .set(dbUpdates)
+      .where(and(
+        eq(scenariosTable.id, id),
+        eq(scenariosTable.userId, userId)
+      ));
 
     set((state) => ({
       scenarios: state.scenarios.map((scenario) =>
@@ -691,13 +698,11 @@ export const useScenarioStore = create<ScenarioStore>()(
     const { userId } = get();
     if (!userId) return;
 
-    const { error } = await supabase
-      .from('scenarios')
-      .delete()
-      .eq('id', id)
-      .eq('user_id', userId);
-
-    if (error) throw error;
+    await db.delete(scenariosTable)
+      .where(and(
+        eq(scenariosTable.id, id),
+        eq(scenariosTable.userId, userId)
+      ));
 
     set((state) => ({
       scenarios: state.scenarios.filter((scenario) => scenario.id !== id),
@@ -718,13 +723,16 @@ export const useScenarioStore = create<ScenarioStore>()(
     console.log('[saveUserMessage] Saving message:', { userId, userType, scenarioId, messageId: message.id });
 
     // Check if message already exists to avoid duplicates
-    const { data: existingMessage } = await supabase
-      .from('user_messages')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('scenario_id', scenarioId)
-      .eq('message_id', message.id)
-      .maybeSingle();
+    const existingMessage = await db.query.userMessages.findFirst({
+      where: and(
+        eq(userMessages.userId, userId),
+        eq(userMessages.scenarioId, scenarioId),
+        eq(userMessages.messageId, message.id)
+      ),
+      columns: {
+        id: true
+      }
+    });
 
     if (existingMessage) {
       // Message already exists, skip saving
@@ -733,26 +741,24 @@ export const useScenarioStore = create<ScenarioStore>()(
     }
 
     const timestamp = message.timestamp instanceof Date
-      ? message.timestamp.toISOString()
-      : new Date(message.timestamp).toISOString();
+      ? message.timestamp
+      : new Date(message.timestamp);
 
-    const { error } = await supabase
-      .from('user_messages')
-      .insert({
-        user_id: userId,
-        scenario_id: scenarioId,
-        message_id: message.id,
+    try {
+      await db.insert(userMessages).values({
+        userId: userId,
+        scenarioId: scenarioId,
+        messageId: message.id,
         text: message.text,
         sender: message.sender,
         timestamp: timestamp
       });
 
-    if (error) {
+      console.log('[saveUserMessage] Message saved successfully');
+    } catch (error) {
       console.error('Error saving user message:', error);
       throw error;
     }
-
-    console.log('[saveUserMessage] Message saved successfully');
   },
 
   saveUserFeedback: async (scenarioId: number, messageId: string, feedbackText: string) => {
@@ -762,16 +768,14 @@ export const useScenarioStore = create<ScenarioStore>()(
     // Parents cannot save feedback (read-only)
     if (userType === 'parent') return;
 
-    const { error } = await supabase
-      .from('user_feedbacks')
-      .insert({
-        user_id: userId,
-        scenario_id: scenarioId,
-        message_id: messageId,
-        feedback_text: feedbackText
+    try {
+      await db.insert(userFeedbacks).values({
+        userId: userId,
+        scenarioId: scenarioId,
+        messageId: messageId,
+        feedbackText: feedbackText
       });
-
-    if (error) {
+    } catch (error) {
       console.error('Error saving user feedback:', error);
       throw error;
     }
@@ -783,50 +787,52 @@ export const useScenarioStore = create<ScenarioStore>()(
 
     console.log('[loadUserMessages] Loading messages:', { userId, userType, scenarioId });
 
-    const { data, error } = await supabase
-      .from('user_messages')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('scenario_id', scenarioId)
-      .order('timestamp', { ascending: true });
+    try {
+      const data = await db.query.userMessages.findMany({
+        where: and(
+          eq(userMessages.userId, userId),
+          eq(userMessages.scenarioId, scenarioId)
+        ),
+        orderBy: [asc(userMessages.timestamp)]
+      });
 
-    if (error) {
+      console.log('[loadUserMessages] Loaded messages count:', data?.length || 0);
+
+      return (data || []).map(row => ({
+        id: row.messageId,
+        text: row.text,
+        sender: row.sender as "user" | "other",
+        timestamp: new Date(row.timestamp),
+        feedbackGenerated: false
+      }));
+    } catch (error) {
       console.error('Error loading user messages:', error);
       return [];
     }
-
-    console.log('[loadUserMessages] Loaded messages count:', data?.length || 0);
-
-    return (data || []).map(row => ({
-      id: row.message_id,
-      text: row.text,
-      sender: row.sender as "user" | "other",
-      timestamp: new Date(row.timestamp),
-      feedbackGenerated: false
-    }));
   },
 
   loadUserFeedbacks: async (scenarioId: number) => {
     const { userId, userType } = get();
     if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
 
-    const { data, error } = await supabase
-      .from('user_feedbacks')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('scenario_id', scenarioId);
+    try {
+      const data = await db.query.userFeedbacks.findMany({
+        where: and(
+          eq(userFeedbacks.userId, userId),
+          eq(userFeedbacks.scenarioId, scenarioId)
+        )
+      });
 
-    if (error) {
+      const feedbackMap = new Map<string, string>();
+      (data || []).forEach(row => {
+        feedbackMap.set(row.messageId, row.feedbackText);
+      });
+
+      return feedbackMap;
+    } catch (error) {
       console.error('Error loading user feedbacks:', error);
       return new Map();
     }
-
-    const feedbackMap = new Map<string, string>();
-    (data || []).forEach(row => {
-      feedbackMap.set(row.message_id, row.feedback_text);
-    });
-
-    return feedbackMap;
   },
 
   recordScenarioVisit: async (scenarioId: number) => {
@@ -837,35 +843,38 @@ export const useScenarioStore = create<ScenarioStore>()(
     if (userType === 'parent') return;
 
     try {
-      // Try to update existing record
-      const { data: existing } = await supabase
-        .from('scenario_progress')
-        .select('visit_count')
-        .eq('user_id', userId)
-        .eq('scenario_id', scenarioId)
-        .single();
+      // Try to find existing record
+      const existing = await db.query.scenarioProgress.findFirst({
+        where: and(
+          eq(scenarioProgressTable.userId, userId),
+          eq(scenarioProgressTable.scenarioId, scenarioId)
+        ),
+        columns: {
+          visitCount: true
+        }
+      });
 
       if (existing) {
         // Update existing record
-        await supabase
-          .from('scenario_progress')
-          .update({
-            last_visited_at: new Date().toISOString(),
-            visit_count: existing.visit_count + 1
+        await db.update(scenarioProgressTable)
+          .set({
+            lastVisitedAt: new Date(),
+            visitCount: existing.visitCount + 1
           })
-          .eq('user_id', userId)
-          .eq('scenario_id', scenarioId);
+          .where(and(
+            eq(scenarioProgressTable.userId, userId),
+            eq(scenarioProgressTable.scenarioId, scenarioId)
+          ));
       } else {
         // Create new record
-        await supabase
-          .from('scenario_progress')
-          .insert({
-            user_id: userId,
-            scenario_id: scenarioId,
-            first_visited_at: new Date().toISOString(),
-            last_visited_at: new Date().toISOString(),
-            visit_count: 1
-          });
+        const now = new Date();
+        await db.insert(scenarioProgressTable).values({
+          userId: userId,
+          scenarioId: scenarioId,
+          firstVisitedAt: now,
+          lastVisitedAt: now,
+          visitCount: 1
+        });
       }
     } catch (error) {
       console.error('Error recording scenario visit:', error);
@@ -876,27 +885,26 @@ export const useScenarioStore = create<ScenarioStore>()(
     const { userId, userType } = get();
     if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
 
-    const { data, error } = await supabase
-      .from('scenario_progress')
-      .select('*')
-      .eq('user_id', userId);
+    try {
+      const data = await db.query.scenarioProgress.findMany({
+        where: eq(scenarioProgressTable.userId, userId)
+      });
 
-    if (error) {
+      const progressMap = new Map<number, ScenarioProgress>();
+      (data || []).forEach(row => {
+        progressMap.set(row.scenarioId, {
+          scenarioId: row.scenarioId,
+          firstVisitedAt: new Date(row.firstVisitedAt),
+          lastVisitedAt: new Date(row.lastVisitedAt),
+          visitCount: row.visitCount
+        });
+      });
+
+      return progressMap;
+    } catch (error) {
       console.error('Error loading scenario progress:', error);
       return new Map();
     }
-
-    const progressMap = new Map<number, ScenarioProgress>();
-    (data || []).forEach(row => {
-      progressMap.set(row.scenario_id, {
-        scenarioId: row.scenario_id,
-        firstVisitedAt: new Date(row.first_visited_at),
-        lastVisitedAt: new Date(row.last_visited_at),
-        visitCount: row.visit_count
-      });
-    });
-
-    return progressMap;
   },
 
   resetScenarioProgress: async (scenarioId: number) => {
@@ -909,32 +917,29 @@ export const useScenarioStore = create<ScenarioStore>()(
     }
 
     try {
-      // Delete all messages for this scenario
-      const { error: messagesError } = await supabase
-        .from('user_messages')
-        .delete()
-        .eq('user_id', userId)
-        .eq('scenario_id', scenarioId);
+      // Use transaction to ensure atomic operation
+      await db.transaction(async (tx) => {
+        // Delete all messages for this scenario
+        await tx.delete(userMessages)
+          .where(and(
+            eq(userMessages.userId, userId),
+            eq(userMessages.scenarioId, scenarioId)
+          ));
 
-      if (messagesError) throw messagesError;
+        // Delete all feedbacks for this scenario
+        await tx.delete(userFeedbacks)
+          .where(and(
+            eq(userFeedbacks.userId, userId),
+            eq(userFeedbacks.scenarioId, scenarioId)
+          ));
 
-      // Delete all feedbacks for this scenario
-      const { error: feedbacksError } = await supabase
-        .from('user_feedbacks')
-        .delete()
-        .eq('user_id', userId)
-        .eq('scenario_id', scenarioId);
-
-      if (feedbacksError) throw feedbacksError;
-
-      // Delete progress record for this scenario
-      const { error: progressError } = await supabase
-        .from('scenario_progress')
-        .delete()
-        .eq('user_id', userId)
-        .eq('scenario_id', scenarioId);
-
-      if (progressError) throw progressError;
+        // Delete progress record for this scenario
+        await tx.delete(scenarioProgressTable)
+          .where(and(
+            eq(scenarioProgressTable.userId, userId),
+            eq(scenarioProgressTable.scenarioId, scenarioId)
+          ));
+      });
 
       console.log('Scenario progress reset successfully');
     } catch (error) {
@@ -965,21 +970,15 @@ export const useScenarioStore = create<ScenarioStore>()(
 
     try {
       // Delete all scenarios (cascades will handle user_messages, user_feedbacks, scenario_progress)
-      const { error: scenariosError } = await supabase
-        .from('scenarios')
-        .delete()
-        .eq('user_id', userId);
-
-      if (scenariosError) throw scenariosError;
+      await db.delete(scenariosTable)
+        .where(eq(scenariosTable.userId, userId));
 
       // Delete the user account
-      const { error: userError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', userId)
-        .eq('user_type', 'admin');
-
-      if (userError) throw userError;
+      await db.delete(users)
+        .where(and(
+          eq(users.id, userId),
+          eq(users.userType, 'admin')
+        ));
 
       console.log('[deleteAccount] Account deleted successfully:', { username: currentUser, userId });
     } catch (error) {
@@ -990,6 +989,7 @@ export const useScenarioStore = create<ScenarioStore>()(
     }),
     {
       name: 'scenario-store',
+      version: 2, // Increment version to invalidate old Supabase-based cache
       partialize: (state) => ({
         currentUser: state.currentUser,
         userId: state.userId,
@@ -1003,6 +1003,7 @@ export const useScenarioStore = create<ScenarioStore>()(
         commonSystemPrompt: state.commonSystemPrompt,
         feedbackPersona: state.feedbackPersona,
         feedbackInstruction: state.feedbackInstruction,
+        selectedModelId: state.selectedModelId,
       }),
     }
   )

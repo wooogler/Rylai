@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { useScenarioStore } from "../store/useScenarioStore";
 import { ArrowLeft, Trash2, RotateCcw, LogOut } from "lucide-react";
 import Link from "next/link";
@@ -10,7 +9,7 @@ import Link from "next/link";
 interface User {
   id: string;
   username: string;
-  created_at: string;
+  createdAt: Date | string;
 }
 
 interface AdminWithProgress extends User {
@@ -36,50 +35,19 @@ export default function SelectUserPage() {
 
   const loadUsersWithProgress = async () => {
     try {
-      // Load users (admins if learner/parent type)
-      const query = supabase
-        .from('users')
-        .select('id, username, created_at, user_type')
-        .order('username', { ascending: true });
+      const response = await fetch('/api/get-users-with-progress', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, userType })
+      });
 
-      if (userType === 'user' || userType === 'parent') {
-        query.eq('user_type', 'admin');
-      }
+      if (!response.ok) throw new Error('Failed to load users');
 
-      const { data: userData, error: userError } = await query;
-      if (userError) throw userError;
+      const data = await response.json();
+      setUsers(data.users || []);
 
-      setUsers(userData || []);
-
-      // For learner/parent type, load progress for each admin
-      if ((userType === 'user' || userType === 'parent') && userId) {
-        const progressMap = await loadScenarioProgress();
-        console.log('[SelectUser] Progress map loaded:', { userId, userType, progressMapSize: progressMap.size, progressMap });
-
-        const adminsWithProgressData: AdminWithProgress[] = await Promise.all(
-          (userData || []).map(async (user) => {
-            // Get scenario count for this admin
-            const { data: scenarioData } = await supabase
-              .from('scenarios')
-              .select('id')
-              .eq('user_id', user.id);
-
-            const scenarioCount = scenarioData?.length || 0;
-
-            // Count how many of this admin's scenarios the learner has visited
-            const visitedCount = scenarioData?.filter(s => progressMap.has(s.id)).length || 0;
-
-            console.log('[SelectUser] Admin progress:', { admin: user.username, scenarioCount, visitedCount, scenarioIds: scenarioData?.map(s => s.id) });
-
-            return {
-              ...user,
-              scenarioCount,
-              visitedCount
-            };
-          })
-        );
-
-        setAdminsWithProgress(adminsWithProgressData);
+      if (data.adminsWithProgress) {
+        setAdminsWithProgress(data.adminsWithProgress);
       }
     } catch (err) {
       console.error("Error loading users:", err);
@@ -96,23 +64,24 @@ export default function SelectUserPage() {
       if (userType === 'user' || userType === 'parent') {
         // Learner/Parent selecting an admin's scenarios
         // Keep the learner's identity but load admin's scenarios
-        const { data: adminUser } = await supabase
-          .from('users')
-          .select('id, common_system_prompt, feedback_persona, feedback_instruction')
-          .eq('username', selectedUsername)
-          .eq('user_type', 'admin')
-          .single();
+        const response = await fetch('/api/get-admin-info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: selectedUsername })
+        });
 
-        if (!adminUser) {
+        if (!response.ok) {
           throw new Error('Admin user not found');
         }
+
+        const { adminUser } = await response.json();
 
         // Update store with selected admin's info
         const store = useScenarioStore.getState();
         store.adminUserId = adminUser.id;
-        store.commonSystemPrompt = adminUser.common_system_prompt;
-        store.feedbackPersona = adminUser.feedback_persona;
-        store.feedbackInstruction = adminUser.feedback_instruction;
+        store.commonSystemPrompt = adminUser.commonSystemPrompt;
+        store.feedbackPersona = adminUser.feedbackPersona;
+        store.feedbackInstruction = adminUser.feedbackInstruction;
 
         await loadUserScenarios();
 
@@ -149,10 +118,15 @@ export default function SelectUserPage() {
       setIsLoading(true);
 
       // Get all scenarios for this admin
-      const { data: scenarioData } = await supabase
-        .from('scenarios')
-        .select('id')
-        .eq('user_id', adminId);
+      const response = await fetch('/api/get-admin-scenarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminId })
+      });
+
+      if (!response.ok) throw new Error('Failed to get scenarios');
+
+      const { scenarios: scenarioData } = await response.json();
 
       if (scenarioData && scenarioData.length > 0) {
         // Reset each scenario
@@ -181,21 +155,13 @@ export default function SelectUserPage() {
     try {
       setIsLoading(true);
 
-      // Delete all scenarios for this user first (due to foreign key constraint)
-      const { error: scenariosError } = await supabase
-        .from('scenarios')
-        .delete()
-        .eq('user_id', userId);
+      const response = await fetch('/api/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId })
+      });
 
-      if (scenariosError) throw scenariosError;
-
-      // Delete the user
-      const { error: userError } = await supabase
-        .from('users')
-        .delete()
-        .eq('id', userId);
-
-      if (userError) throw userError;
+      if (!response.ok) throw new Error('Failed to delete user');
 
       // Reload users list
       await loadUsersWithProgress();
@@ -287,7 +253,7 @@ export default function SelectUserPage() {
                         {user.username}
                       </h3>
                       <p className="text-sm text-gray-500 mt-1">
-                        Created: {new Date(user.created_at).toLocaleDateString()}
+                        Created: {new Date(user.createdAt).toLocaleDateString()}
                       </p>
                     </div>
                     <div className="text-purple-600 font-semibold">

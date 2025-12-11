@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useScenarioStore } from "./store/useScenarioStore";
-import { supabase } from "@/lib/supabase";
 import Image from "next/image";
 
 const ADMIN_PASSWORD = "rylai2025";
@@ -59,14 +58,15 @@ export default function Home() {
       // For parent type, check if child (user type) account exists
       const targetUserType = detectedUserType === 'parent' ? 'user' : detectedUserType;
 
-      const { data, error } = await supabase
-        .from('users')
-        .select('id, user_type')
-        .eq('username', inputUsername)
-        .eq('user_type', targetUserType)
-        .single();
+      const response = await fetch('/api/check-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: inputUsername, userType: targetUserType })
+      });
 
-      if (data && !error) {
+      const result = await response.json();
+
+      if (result.exists) {
         setButtonState("existing");
       } else {
         setButtonState("new");
