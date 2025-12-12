@@ -34,7 +34,9 @@ export default function ChatPage() {
     isAuthenticated,
     userType,
     selectedModelId,
+    selectedFeedbackModelId,
     setSelectedModelId,
+    setSelectedFeedbackModelId,
     saveUserMessage,
     saveUserFeedback,
     loadUserMessages,
@@ -156,7 +158,7 @@ export default function ChatPage() {
           conversationHistory: conversationUpToMessage,
           feedbackPersona,
           feedbackInstruction,
-          modelId: selectedModelId,
+          modelId: selectedFeedbackModelId,
         }),
       });
 
@@ -342,7 +344,7 @@ export default function ChatPage() {
           conversationHistory: conversationWithPreview,
           feedbackPersona,
           feedbackInstruction,
-          modelId: selectedModelId,
+          modelId: selectedFeedbackModelId,
         }),
       });
 
@@ -535,15 +537,15 @@ export default function ChatPage() {
                     Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
                   </div>
                   <div className="flex items-center gap-2">
-                    <label htmlFor="model-selector" className="text-xs font-medium text-gray-600">
-                      AI Model:
+                    <label htmlFor="chat-model-selector" className="text-xs font-medium text-gray-600">
+                      Chat Model:
                     </label>
                     <select
-                      id="model-selector"
+                      id="chat-model-selector"
                       value={selectedModelId}
                       onChange={(e) => setSelectedModelId(e.target.value)}
                       className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      title={getModelById(selectedModelId)?.description || 'Select AI model'}
+                      title={getModelById(selectedModelId)?.description || 'Select chat AI model'}
                     >
                       {AI_MODELS.map((model) => (
                         <option key={model.id} value={model.id}>
@@ -702,16 +704,36 @@ export default function ChatPage() {
           <div className="flex flex-col">
             {/* Feedback Section */}
             <div className="bg-white rounded-lg shadow p-6 flex flex-col overflow-hidden h-[700px]">
-              <div className="mb-4">
-                <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
-                {currentFeedback && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    {previewFeedback && currentFeedback === previewFeedback
-                      ? `Preview Feedback for message "${currentFeedback.lastUserMessage}"`
-                      : `Feedback for message "${currentFeedback.lastUserMessage}"`
-                    }
-                  </p>
-                )}
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
+                  {currentFeedback && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      {previewFeedback && currentFeedback === previewFeedback
+                        ? `Preview Feedback for message "${currentFeedback.lastUserMessage}"`
+                        : `Feedback for message "${currentFeedback.lastUserMessage}"`
+                      }
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <label htmlFor="feedback-model-selector" className="text-xs font-medium text-gray-600 whitespace-nowrap">
+                    Model:
+                  </label>
+                  <select
+                    id="feedback-model-selector"
+                    value={selectedFeedbackModelId}
+                    onChange={(e) => setSelectedFeedbackModelId(e.target.value)}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    title={getModelById(selectedFeedbackModelId)?.description || 'Select feedback AI model'}
+                  >
+                    {AI_MODELS.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
 
               <div

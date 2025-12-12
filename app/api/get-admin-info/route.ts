@@ -43,3 +43,34 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
+// PATCH - Update admin prompts
+export async function PATCH(req: NextRequest) {
+  try {
+    const { userId, commonSystemPrompt, feedbackPersona, feedbackInstruction } = await req.json();
+
+    if (!userId) {
+      return NextResponse.json(
+        { error: 'User ID is required' },
+        { status: 400 }
+      );
+    }
+
+    const updates: Record<string, string> = {};
+    if (commonSystemPrompt !== undefined) updates.commonSystemPrompt = commonSystemPrompt;
+    if (feedbackPersona !== undefined) updates.feedbackPersona = feedbackPersona;
+    if (feedbackInstruction !== undefined) updates.feedbackInstruction = feedbackInstruction;
+
+    await db.update(users)
+      .set(updates)
+      .where(eq(users.id, userId));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error updating admin info:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}

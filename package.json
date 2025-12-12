@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "npm run db:migrate && next dev --turbopack",
     "dev:local": "npm run db:migrate && NEXT_PUBLIC_USE_LOCAL_API=true next dev --turbopack",
-    "build": "npm run db:migrate && next build --turbopack",
+    "build": "npm run db:migrate && next build",
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "tsx lib/db/migrate.ts",

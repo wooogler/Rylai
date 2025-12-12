@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { users, scenarios as scenariosTable, scenarioProgress as scenarioProgressTable } from '@/lib/db/schema';
-import { eq, and, asc } from 'drizzle-orm';
+import { eq, asc } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
