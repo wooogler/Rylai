@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       messageId: message.id,
       text: message.text,
       sender: message.sender,
-      timestamp: timestamp.getTime(),
+      timestamp,
       createdAt: new Date(),
     });
 

@@ -68,6 +68,8 @@ export default function ChatPage() {
   const [hoveredButton, setHoveredButton] = useState<'preview' | 'send' | null>(null);
   const [previewFeedback, setPreviewFeedback] = useState<FeedbackItem | null>(null);
   const [previewText, setPreviewText] = useState<string>('');
+  const [vtSessionId, setVtSessionId] = useState<string | null>(null);
+  const [autoStage, setAutoStage] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const feedbackContainerRef = useRef<HTMLDivElement>(null);
@@ -263,10 +265,17 @@ export default function ChatPage() {
           commonSystemPrompt: commonSystemPrompt,
           userMessage: textToSend,
           modelId: selectedModelId,
+          vtSessionId: selectedModelId === 'vt-custom' ? vtSessionId : undefined,
         }),
       })
         .then(res => res.json())
         .then(async data => {
+          // Handle VT custom session state updates
+          if (selectedModelId === 'vt-custom') {
+            if (data.vtSessionId) setVtSessionId(data.vtSessionId);
+            if (data.stage !== undefined) setAutoStage(data.stage);
+          }
+
           const autoReply: Message = {
             id: (Date.now() + 1).toString(),
             text: data.reply || "Sorry, I couldn't respond right now.",
@@ -383,6 +392,42 @@ export default function ChatPage() {
     }
   };
 
+  const resetVtSession = () => {
+    setVtSessionId(null);
+    setAutoStage(null);
+  };
+
+  const handleModelChange = async (newModelId: string) => {
+    setSelectedModelId(newModelId);
+    resetVtSession();
+
+    setResponseText("");
+    setIsTyping(false);
+    setCurrentFeedback(null);
+    setMessageFeedbackMap(new Map());
+    setSelectedMessageIndex(null);
+    setPreviewFeedback(null);
+    setPreviewText('');
+
+    if (userType === 'user') {
+      await resetScenarioProgress(scenarios[currentScenario].id);
+      const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
+        ...msg,
+        id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}`,
+      }));
+      setMessages(presetMessages);
+      for (const msg of presetMessages) {
+        try {
+          await saveUserMessage(scenarios[currentScenario].id, msg);
+        } catch (error) {
+          console.error('Failed to save preset message:', error);
+        }
+      }
+    } else {
+      setMessages(scenarios[currentScenario].presetMessages);
+    }
+  };
+
   const handlePreviousScenario = () => {
     if (currentScenario > 0) {
       const prevScenario = currentScenario - 1;
@@ -394,6 +439,7 @@ export default function ChatPage() {
       setCurrentFeedback(null);
       setMessageFeedbackMap(new Map());
       setSelectedMessageIndex(null);
+      resetVtSession();
     }
   };
 
@@ -408,6 +454,7 @@ export default function ChatPage() {
       setCurrentFeedback(null);
       setMessageFeedbackMap(new Map());
       setSelectedMessageIndex(null);
+      resetVtSession();
     }
   };
 
@@ -461,6 +508,7 @@ export default function ChatPage() {
         setMessageFeedbackMap(new Map());
         setSelectedMessageIndex(null);
       }
+      resetVtSession();
     } catch (error) {
       console.error('Failed to reset scenario:', error);
       alert('Failed to reset scenario. Please try again.');
@@ -468,6 +516,9 @@ export default function ChatPage() {
   };
 
   const scenario = scenarios[currentScenario];
+  const isVtCustom = selectedModelId === 'vt-custom';
+  const displayStage = isVtCustom && autoStage !== null ? autoStage : scenario.stage;
+  const displayStageName = GROOMING_STAGES.find(s => s.stage === displayStage)?.name || 'Unknown';
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -533,8 +584,9 @@ export default function ChatPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                    Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
+                  <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${isVtCustom ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}>
+                    Stage {displayStage}: {displayStageName}
+                    {isVtCustom && <span className="opacity-60">(auto)</span>}
                   </div>
                   <div className="flex items-center gap-2">
                     <label htmlFor="chat-model-selector" className="text-xs font-medium text-gray-600">
@@ -543,7 +595,7 @@ export default function ChatPage() {
                     <select
                       id="chat-model-selector"
                       value={selectedModelId}
-                      onChange={(e) => setSelectedModelId(e.target.value)}
+                      onChange={(e) => handleModelChange(e.target.value)}
                       className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                       title={getModelById(selectedModelId)?.description || 'Select chat AI model'}
                     >
@@ -727,7 +779,7 @@ export default function ChatPage() {
                     className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                     title={getModelById(selectedFeedbackModelId)?.description || 'Select feedback AI model'}
                   >
-                    {AI_MODELS.map((model) => (
+                    {AI_MODELS.filter((model) => model.provider !== 'vt-custom').map((model) => (
                       <option key={model.id} value={model.id}>
                         {model.name}
                       </option>

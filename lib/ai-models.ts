@@ -1,9 +1,11 @@
 // AI Model configurations for OpenRouter and other providers
 
+export const VT_CUSTOM_BASE_URL = 'https://rylai.cs.vt.edu/llm';
+
 export interface AIModel {
   id: string;
   name: string;
-  provider: 'openrouter' | 'openai' | 'local';
+  provider: 'openrouter' | 'openai' | 'local' | 'vt-custom';
   modelId: string; // The actual model ID to use with the API
   description?: string;
   contextWindow?: number;
@@ -54,10 +56,17 @@ export const AI_MODELS: AIModel[] = [
     description: 'DeepSeek V3.2 model',
     contextWindow: 65536,
   },
+  {
+    id: 'vt-custom',
+    name: 'VT Custom (StagePilot)',
+    provider: 'vt-custom',
+    modelId: 'vt-custom',
+    description: 'Virginia Tech custom model with automatic stage prediction',
+  },
 ];
 
 // Default model
-export const DEFAULT_MODEL_ID = 'gpt-4o';
+export const DEFAULT_MODEL_ID = 'vt-custom';
 
 // Get model by ID
 export function getModelById(id: string): AIModel | undefined {

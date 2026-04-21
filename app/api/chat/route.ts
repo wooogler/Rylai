@@ -1,6 +1,40 @@
 import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
-import { getModelById, getOpenRouterConfig, DEFAULT_MODEL_ID } from '@/lib/ai-models';
+import https from 'https';
+import { getModelById, getOpenRouterConfig, DEFAULT_MODEL_ID, VT_CUSTOM_BASE_URL } from '@/lib/ai-models';
+
+const vtHttpsAgent = new https.Agent({ rejectUnauthorized: false });
+
+function vtFetch(url: string, init: { method: string; headers?: Record<string, string>; body?: string }): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const req = https.request(
+      {
+        hostname: parsed.hostname,
+        port: parsed.port || 443,
+        path: parsed.pathname + parsed.search,
+        method: init.method,
+        headers: init.headers,
+        agent: vtHttpsAgent,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          resolve({
+            ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+            status: res.statusCode ?? 0,
+            json: () => Promise.resolve(JSON.parse(body)),
+          });
+        });
+      }
+    );
+    req.on('error', reject);
+    if (init.body) req.write(init.body);
+    req.end();
+  });
+}
 
 // Legacy local API support
 const useLocalAPI = process.env.NEXT_PUBLIC_USE_LOCAL_API === 'true';
@@ -53,9 +87,54 @@ interface ConversationMessage {
   text: string;
 }
 
+async function handleVtCustom(
+  userMessage: string,
+  vtSessionId: string | null,
+  conversationHistory: Array<{ sender: 'user' | 'other'; text: string }>
+): Promise<NextResponse> {
+  let sessionId = vtSessionId;
+
+  if (!sessionId) {
+    const sessionRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        initial_history: conversationHistory.map(msg => ({
+          speaker: msg.sender === 'other' ? 'PRED' : 'USER',
+          text: msg.text,
+        })),
+      }),
+    });
+    if (!sessionRes.ok) {
+      throw new Error(`Failed to create VT session: ${sessionRes.status}`);
+    }
+    const sessionData = await sessionRes.json() as { session_id: string };
+    sessionId = sessionData.session_id;
+  }
+
+  const turnRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions/${sessionId}/turn`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ victim_message: userMessage }),
+  });
+
+  if (!turnRes.ok) {
+    throw new Error(`VT turn request failed: ${turnRes.status}`);
+  }
+
+  const turnData = await turnRes.json() as { predator_response: string; stage: number; stage_label: string };
+
+  return NextResponse.json({
+    reply: turnData.predator_response,
+    vtSessionId: sessionId,
+    stage: turnData.stage,
+    stageLabel: turnData.stage_label,
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage, modelId } = await req.json();
+    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage, modelId, vtSessionId } = await req.json();
 
     // Determine which model to use
     let selectedModelId = modelId || DEFAULT_MODEL_ID;
@@ -71,6 +150,11 @@ export async function POST(req: NextRequest) {
         { error: `Model ${selectedModelId} not found` },
         { status: 400 }
       );
+    }
+
+    // VT Custom: session-based API
+    if (model.provider === 'vt-custom') {
+      return await handleVtCustom(userMessage, vtSessionId ?? null, conversationHistory);
     }
 
     // Get appropriate OpenAI client for this model

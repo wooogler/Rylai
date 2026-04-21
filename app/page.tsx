@@ -165,11 +165,14 @@ export default function Home() {
 
           <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
             <p className="text-sm text-purple-900">
-              <span className="font-semibold">For Educators:</span> Use password &quot;rylai2025&quot; to create and manage scenarios.
+              <span className="font-semibold">For Educators:</span> Create and manage scenarios for your learners.
               <br />
-              <span className="font-semibold">For Learners:</span> Use password &quot;user2025&quot; to practice with educator scenarios.
+              <span className="font-semibold">For Learners:</span> Practice with scenarios created by your educator.
               <br />
-              <span className="font-semibold">For Parents:</span> Use password &quot;parent2025&quot; to view your child&apos;s progress (use same username as your child).
+              <span className="font-semibold">For Parents:</span> View your child&apos;s progress (use same username as your child).
+              <br />
+              <br />
+              <span className="text-xs text-purple-700">Contact your educator or administrator for login credentials.</span>
             </p>
           </div>
         </div>

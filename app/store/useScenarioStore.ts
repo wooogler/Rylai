@@ -194,8 +194,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       isParent: false,
       adminUserId: null,
       childUserId: null,
-      selectedModelId: 'openai/gpt-4o',
-      selectedFeedbackModelId: 'openai/gpt-4o',
+      selectedModelId: 'vt-custom',
+      selectedFeedbackModelId: 'gpt-4o',
 
       // Actions
       setSelectedModelId: (modelId: string) => {
