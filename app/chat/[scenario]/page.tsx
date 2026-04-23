@@ -70,6 +70,7 @@ export default function ChatPage() {
   const [previewText, setPreviewText] = useState<string>('');
   const [vtSessionId, setVtSessionId] = useState<string | null>(null);
   const [autoStage, setAutoStage] = useState<number | null>(null);
+  const [stageOverride, setStageOverride] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const feedbackContainerRef = useRef<HTMLDivElement>(null);
@@ -266,6 +267,7 @@ export default function ChatPage() {
           userMessage: textToSend,
           modelId: selectedModelId,
           vtSessionId: selectedModelId === 'vt-custom' ? vtSessionId : undefined,
+          stageOverride: selectedModelId === 'vt-custom' ? stageOverride : undefined,
         }),
       })
         .then(res => res.json())
@@ -274,6 +276,7 @@ export default function ChatPage() {
           if (selectedModelId === 'vt-custom') {
             if (data.vtSessionId) setVtSessionId(data.vtSessionId);
             if (data.stage !== undefined) setAutoStage(data.stage);
+            setStageOverride(null);
           }
 
           const autoReply: Message = {
@@ -395,6 +398,7 @@ export default function ChatPage() {
   const resetVtSession = () => {
     setVtSessionId(null);
     setAutoStage(null);
+    setStageOverride(null);
   };
 
   const handleModelChange = async (newModelId: string) => {
@@ -516,9 +520,10 @@ export default function ChatPage() {
   };
 
   const scenario = scenarios[currentScenario];
+
+  if (!scenario) return null;
+
   const isVtCustom = selectedModelId === 'vt-custom';
-  const displayStage = isVtCustom && autoStage !== null ? autoStage : scenario.stage;
-  const displayStageName = GROOMING_STAGES.find(s => s.stage === displayStage)?.name || 'Unknown';
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
@@ -584,10 +589,35 @@ export default function ChatPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-3 flex-wrap">
-                  <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium ${isVtCustom ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'}`}>
-                    Stage {displayStage}: {displayStageName}
-                    {isVtCustom && <span className="opacity-60">(auto)</span>}
-                  </div>
+                  {isVtCustom ? (
+                    <select
+                      value={stageOverride !== null ? String(stageOverride) : ''}
+                      onChange={(e) => setStageOverride(e.target.value === '' ? null : parseInt(e.target.value))}
+                      className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer border-0 focus:outline-none focus:ring-2 focus:ring-offset-1 transition-colors ${
+                        stageOverride !== null
+                          ? 'bg-orange-100 text-orange-800 focus:ring-orange-300'
+                          : autoStage !== null
+                          ? 'bg-green-100 text-green-800 focus:ring-green-300'
+                          : 'bg-gray-100 text-gray-400 focus:ring-gray-300'
+                      }`}
+                      title="Click to override stage for the next turn"
+                    >
+                      <option value="">
+                        {autoStage !== null
+                          ? `Stage ${autoStage}: ${GROOMING_STAGES.find(s => s.stage === autoStage)?.name} (auto)`
+                          : 'Stage — (detecting...)'}
+                      </option>
+                      {GROOMING_STAGES.map((s) => (
+                        <option key={s.stage} value={s.stage}>
+                          Stage {s.stage}: {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                      Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2">
                     <label htmlFor="chat-model-selector" className="text-xs font-medium text-gray-600">
                       Chat Model:

@@ -90,7 +90,8 @@ interface ConversationMessage {
 async function handleVtCustom(
   userMessage: string,
   vtSessionId: string | null,
-  conversationHistory: Array<{ sender: 'user' | 'other'; text: string }>
+  conversationHistory: Array<{ sender: 'user' | 'other'; text: string }>,
+  stageOverride: number | null
 ): Promise<NextResponse> {
   let sessionId = vtSessionId;
 
@@ -115,7 +116,7 @@ async function handleVtCustom(
   const turnRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ victim_message: userMessage }),
+    body: JSON.stringify({ victim_message: userMessage, stage: stageOverride }),
   });
 
   if (!turnRes.ok) {
@@ -134,7 +135,7 @@ async function handleVtCustom(
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage, modelId, vtSessionId } = await req.json();
+    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage, modelId, vtSessionId, stageOverride } = await req.json();
 
     // Determine which model to use
     let selectedModelId = modelId || DEFAULT_MODEL_ID;
@@ -154,7 +155,7 @@ export async function POST(req: NextRequest) {
 
     // VT Custom: session-based API
     if (model.provider === 'vt-custom') {
-      return await handleVtCustom(userMessage, vtSessionId ?? null, conversationHistory);
+      return await handleVtCustom(userMessage, vtSessionId ?? null, conversationHistory, stageOverride ?? null);
     }
 
     // Get appropriate OpenAI client for this model
