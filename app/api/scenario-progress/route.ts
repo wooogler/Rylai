@@ -51,10 +51,9 @@ export async function POST(request: NextRequest) {
       )
     });
 
-    const now = Date.now();
+    const now = new Date();
 
     if (existing) {
-      // Update existing progress
       await db.update(scenarioProgress)
         .set({
           lastVisitedAt: now,
@@ -62,15 +61,12 @@ export async function POST(request: NextRequest) {
         })
         .where(eq(scenarioProgress.id, existing.id));
     } else {
-      // Create new progress entry
       await db.insert(scenarioProgress).values({
-        id: crypto.randomUUID(),
         userId,
         scenarioId,
         firstVisitedAt: now,
         lastVisitedAt: now,
         visitCount: 1,
-        createdAt: now,
       });
     }
 
@@ -95,25 +91,20 @@ export async function DELETE(request: NextRequest) {
     const scenarioIdInt = parseInt(scenarioId);
 
     // Use transaction to delete all related data
-    await db.transaction(async (tx) => {
-      // Delete progress
-      await tx.delete(scenarioProgress).where(
+    db.transaction((tx) => {
+      tx.delete(scenarioProgress).where(
         and(
           eq(scenarioProgress.userId, userId),
           eq(scenarioProgress.scenarioId, scenarioIdInt)
         )
       );
-
-      // Delete messages
-      await tx.delete(userMessages).where(
+      tx.delete(userMessages).where(
         and(
           eq(userMessages.userId, userId),
           eq(userMessages.scenarioId, scenarioIdInt)
         )
       );
-
-      // Delete feedbacks
-      await tx.delete(userFeedbacks).where(
+      tx.delete(userFeedbacks).where(
         and(
           eq(userFeedbacks.userId, userId),
           eq(userFeedbacks.scenarioId, scenarioIdInt)

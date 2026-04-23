@@ -20,6 +20,19 @@ interface FeedbackItem {
   timestamp: Date;
 }
 
+function getStageColorClass(stage: number): string {
+  switch (stage) {
+    case 0: return 'bg-gray-100 text-gray-600 focus:ring-gray-300';
+    case 1: return 'bg-blue-100 text-blue-700 focus:ring-blue-300';
+    case 2: return 'bg-cyan-100 text-cyan-700 focus:ring-cyan-300';
+    case 3: return 'bg-yellow-100 text-yellow-700 focus:ring-yellow-300';
+    case 4: return 'bg-orange-100 text-orange-700 focus:ring-orange-300';
+    case 5: return 'bg-red-100 text-red-700 focus:ring-red-300';
+    case 6: return 'bg-rose-200 text-rose-800 focus:ring-rose-300';
+    default: return 'bg-gray-100 text-gray-400 focus:ring-gray-300';
+  }
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
@@ -595,9 +608,9 @@ export default function ChatPage() {
                       onChange={(e) => setStageOverride(e.target.value === '' ? null : parseInt(e.target.value))}
                       className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer border-0 focus:outline-none focus:ring-2 focus:ring-offset-1 transition-colors ${
                         stageOverride !== null
-                          ? 'bg-orange-100 text-orange-800 focus:ring-orange-300'
+                          ? getStageColorClass(stageOverride)
                           : autoStage !== null
-                          ? 'bg-green-100 text-green-800 focus:ring-green-300'
+                          ? getStageColorClass(autoStage)
                           : 'bg-gray-100 text-gray-400 focus:ring-gray-300'
                       }`}
                       title="Click to override stage for the next turn"
