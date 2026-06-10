@@ -97,19 +97,19 @@ export async function DELETE(request: NextRequest) {
           eq(scenarioProgress.userId, userId),
           eq(scenarioProgress.scenarioId, scenarioIdInt)
         )
-      );
+      ).run();
       tx.delete(userMessages).where(
         and(
           eq(userMessages.userId, userId),
           eq(userMessages.scenarioId, scenarioIdInt)
         )
-      );
+      ).run();
       tx.delete(userFeedbacks).where(
         and(
           eq(userFeedbacks.userId, userId),
           eq(userFeedbacks.scenarioId, scenarioIdInt)
         )
-      );
+      ).run();
     });
 
     return NextResponse.json({ success: true });
