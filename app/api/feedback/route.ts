@@ -1,109 +1,83 @@
 import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
-import { getModelById, getOpenRouterConfig, DEFAULT_MODEL_ID } from '@/lib/ai-models';
-
-// Legacy local API support
-const useLocalAPI = process.env.NEXT_PUBLIC_USE_LOCAL_API === 'true';
-
-function getOpenAIClient(modelId: string) {
-  const model = getModelById(modelId);
-
-  if (!model) {
-    throw new Error(`Model ${modelId} not found`);
-  }
-
-  // Local model
-  if (model.provider === 'local') {
-    return new OpenAI({
-      apiKey: 'echolab-1234',
-      baseURL: 'http://localhost:8000/v1',
-    });
-  }
-
-  // OpenRouter models
-  if (model.provider === 'openrouter') {
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-    if (!openRouterApiKey) {
-      throw new Error('OPENROUTER_API_KEY not configured');
-    }
-    const config = getOpenRouterConfig(openRouterApiKey);
-    return new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseURL,
-      defaultHeaders: config.defaultHeaders,
-    });
-  }
-
-  // Direct OpenAI
-  if (model.provider === 'openai') {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY not configured');
-    }
-    return new OpenAI({
-      apiKey: openaiApiKey,
-    });
-  }
-
-  throw new Error(`Unsupported provider: ${model.provider}`);
-}
+import { FEEDBACK_MODEL } from '@/lib/ai-models';
+import { buildFeedbackAndClassificationInput } from '@/lib/feedback-prompts';
 
 interface ConversationMessage {
   sender: 'user' | 'other';
   text: string;
 }
 
+interface FeedbackResult {
+  feedback: string;
+  classification: 'protective' | 'neutral' | 'risky';
+  tacticRecognized: boolean;
+  protectiveStrategy: boolean;
+  rationale: string;
+}
+
+const RESULT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    feedback: { type: 'string' },
+    classification: { type: 'string', enum: ['protective', 'neutral', 'risky'] },
+    tacticRecognized: { type: 'boolean' },
+    protectiveStrategy: { type: 'boolean' },
+    rationale: { type: 'string' },
+  },
+  required: ['feedback', 'classification', 'tacticRecognized', 'protectiveStrategy', 'rationale'],
+} as const;
+
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, feedbackPersona, feedbackInstruction, modelId } = await req.json();
+    const { conversationHistory, stage, age } = await req.json();
 
-    // Determine which model to use
-    let selectedModelId = modelId || DEFAULT_MODEL_ID;
-
-    // Legacy support: if NEXT_PUBLIC_USE_LOCAL_API is true, use local model
-    if (useLocalAPI && !modelId) {
-      selectedModelId = 'local-mistral-7b';
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: 'OPENAI_API_KEY not configured' }, { status: 500 });
     }
+    const openai = new OpenAI({ apiKey });
 
-    const model = getModelById(selectedModelId);
-    if (!model) {
-      return NextResponse.json(
-        { error: `Model ${selectedModelId} not found` },
-        { status: 400 }
-      );
-    }
-
-    // Get appropriate OpenAI client for this model
-    const openai = getOpenAIClient(selectedModelId);
-
-    // Build conversation context
-    const conversationContext = conversationHistory
-      .map((msg: ConversationMessage) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
+    const conversationContext = (conversationHistory as ConversationMessage[])
+      .map((msg) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
       .join('\n');
 
-    const input = `${feedbackPersona}
+    const input = buildFeedbackAndClassificationInput(stage, conversationContext, age);
 
-Conversation:
-${conversationContext}
-
-${feedbackInstruction}
-
-IMPORTANT: Format your response using Markdown. Use headings (##), bullet points (-), bold (**), and other Markdown formatting to make the feedback clear and well-structured.`;
-
-    const response = await openai.chat.completions.create({
-      model: model.modelId,
-      messages: [
-        {
-          role: 'user',
-          content: input
-        }
-      ],
-      max_tokens: 300
+    // FEEDBACK_MODEL is a reasoning model (gpt-5.x). Low reasoning effort for a short
+    // task; structured outputs guarantee a parseable JSON object.
+    const response = await openai.responses.create({
+      model: FEEDBACK_MODEL,
+      input,
+      reasoning: { effort: 'low' },
+      max_output_tokens: 1200,
+      text: {
+        format: {
+          type: 'json_schema',
+          name: 'rylai_feedback',
+          schema: RESULT_SCHEMA as unknown as Record<string, unknown>,
+          strict: true,
+        },
+      },
     });
 
-    const feedback = response.choices[0].message.content || '';
+    const raw = response.output_text || '';
+    let result: FeedbackResult;
+    try {
+      result = JSON.parse(raw) as FeedbackResult;
+    } catch {
+      // Fallback: if structured parsing fails, surface the text as feedback only.
+      result = {
+        feedback: raw,
+        classification: 'neutral',
+        tacticRecognized: false,
+        protectiveStrategy: false,
+        rationale: 'Could not parse structured classification.',
+      };
+    }
 
-    return NextResponse.json({ feedback });
+    return NextResponse.json(result);
   } catch (error) {
     console.error('Feedback API error:', error);
     return NextResponse.json(

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { scenarios } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { eq, and } from 'drizzle-orm';
 
 // POST - Add new scenario
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, slug, name, predatorName, handle, systemPrompt, presetMessages, description, stage } = body;
+    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -20,17 +20,17 @@ export async function POST(request: NextRequest) {
         name,
         predatorName,
         handle,
-        systemPrompt,
-        presetMessages: JSON.stringify(presetMessages),
+        presetMessages: presetMessages ?? [],
         description,
         stage,
+        autoStage: autoStage ?? true,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
 
-    // Query the inserted scenario
+    // Query the inserted scenario (scoped to this educator + slug, latest first)
     const newScenario = await db.query.scenarios.findFirst({
-      where: eq(scenarios.slug, slug),
+      where: and(eq(scenarios.userId, userId), eq(scenarios.slug, slug)),
       orderBy: (scenarios, { desc }) => [desc(scenarios.id)]
     });
 
@@ -38,10 +38,8 @@ export async function POST(request: NextRequest) {
       throw new Error('Failed to create scenario');
     }
 
-    return NextResponse.json({
-      ...newScenario,
-      presetMessages: JSON.parse(newScenario.presetMessages || '[]'),
-    });
+    // presetMessages is a json-mode column — already returned as a parsed array.
+    return NextResponse.json(newScenario);
   } catch (error) {
     console.error('Error adding scenario:', error);
     return NextResponse.json({ error: 'Failed to add scenario' }, { status: 500 });
@@ -64,12 +62,12 @@ export async function PATCH(request: NextRequest) {
     if (updates.name !== undefined) dbUpdates.name = updates.name;
     if (updates.predatorName !== undefined) dbUpdates.predatorName = updates.predatorName;
     if (updates.handle !== undefined) dbUpdates.handle = updates.handle;
-    if (updates.systemPrompt !== undefined) dbUpdates.systemPrompt = updates.systemPrompt;
     if (updates.presetMessages !== undefined) {
-      dbUpdates.presetMessages = JSON.stringify(updates.presetMessages);
+      dbUpdates.presetMessages = updates.presetMessages;
     }
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
+    if (updates.autoStage !== undefined) dbUpdates.autoStage = updates.autoStage;
 
     await db.update(scenarios)
       .set(dbUpdates)

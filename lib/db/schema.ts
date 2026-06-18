@@ -1,7 +1,8 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import { sql } from 'drizzle-orm';
 
-// Users table
+// Users table — username + password authentication (no email; nothing is emailed).
+// `username` is the login id and the name shown to learners when picking an educator.
+// userType: 'admin' (educator) creates scenarios; 'user' (learner) practices them.
 export const users = sqliteTable(
   'users',
   {
@@ -9,19 +10,20 @@ export const users = sqliteTable(
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
     username: text('username').notNull(),
-    userType: text('user_type', { enum: ['admin', 'user', 'parent'] }).notNull(),
-    commonSystemPrompt: text('common_system_prompt'),
-    feedbackPersona: text('feedback_persona'),
-    feedbackInstruction: text('feedback_instruction'),
+    passwordHash: text('password_hash').notNull(),
+    userType: text('user_type', { enum: ['admin', 'user'] })
+      .notNull()
+      .default('user'),
+    // Global (per-educator) simulated victim age, sent to the VT session to scale
+    // the grooming guardrails. Stored as a representative integer (13 / 15 / 17).
+    age: integer('age'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
+    lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
   },
   (table) => ({
-    usernameUserTypeIdx: uniqueIndex('username_user_type_idx').on(
-      table.username,
-      table.userType
-    ),
+    usernameIdx: uniqueIndex('users_username_idx').on(table.username),
   })
 );
 
@@ -37,8 +39,11 @@ export const scenarios = sqliteTable(
     name: text('name').notNull(),
     predatorName: text('predator_name').notNull(),
     handle: text('handle').notNull(),
+    // Fixed/initial grooming stage, used when autoStage is off.
     stage: integer('stage').notNull().default(1),
-    systemPrompt: text('system_prompt').notNull(),
+    // When true, the VT model auto-predicts the stage each turn; when false, the
+    // session is pinned to `stage`.
+    autoStage: integer('auto_stage', { mode: 'boolean' }).notNull().default(true),
     presetMessages: text('preset_messages', { mode: 'json' })
       .notNull()
       .$type<
@@ -79,6 +84,14 @@ export const userMessages = sqliteTable(
     messageId: text('message_id').notNull(),
     text: text('text').notNull(),
     sender: text('sender', { enum: ['user', 'other'] }).notNull(),
+    // VT Custom predicted grooming stage for predator messages (null otherwise).
+    stage: integer('stage'),
+    // Feedback-agent classification of a participant (user) reply. Null for predator
+    // messages and any reply not yet classified. Used for the resilience score.
+    classification: text('classification', { enum: ['protective', 'neutral', 'risky'] }),
+    tacticRecognized: integer('tactic_recognized', { mode: 'boolean' }),
+    protectiveStrategy: integer('protective_strategy', { mode: 'boolean' }),
+    rationale: text('rationale'),
     timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
@@ -149,6 +162,37 @@ export const scenarioProgress = sqliteTable(
   })
 );
 
+// Preview-feedback events: logged when a learner uses the "preview" button to check
+// feedback on a draft reply *before* sending it. The draft may never be sent, so this
+// is separate from user_messages. Useful research signal (the learner self-correcting).
+export const previewEvents = sqliteTable(
+  'preview_events',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scenarioId: integer('scenario_id')
+      .notNull()
+      .references(() => scenarios.id, { onDelete: 'cascade' }),
+    draftText: text('draft_text').notNull(),
+    feedbackText: text('feedback_text').notNull(),
+    classification: text('classification', { enum: ['protective', 'neutral', 'risky'] }),
+    stage: integer('stage'),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userScenarioIdx: index('preview_events_user_scenario_idx').on(
+      table.userId,
+      table.scenarioId
+    ),
+  })
+);
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -164,3 +208,6 @@ export type InsertUserFeedback = typeof userFeedbacks.$inferInsert;
 
 export type ScenarioProgress = typeof scenarioProgress.$inferSelect;
 export type InsertScenarioProgress = typeof scenarioProgress.$inferInsert;
+
+export type PreviewEvent = typeof previewEvents.$inferSelect;
+export type InsertPreviewEvent = typeof previewEvents.$inferInsert;

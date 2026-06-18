@@ -43,6 +43,12 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/lib/db/migrations ./lib/db/migrations
 
+# Runtime migration runner (applied at container startup, see CMD). The Next.js
+# standalone trace omits the drizzle migrator submodule because the app never
+# imports it, so copy the full drizzle-orm package over the pruned one.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts/migrate-runtime.mjs ./scripts/migrate-runtime.mjs
+COPY --from=builder --chown=nextjs:nodejs /app/node_modules/drizzle-orm ./node_modules/drizzle-orm
+
 # Set user
 USER nextjs
 
@@ -56,5 +62,7 @@ ENV HOSTNAME="0.0.0.0"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start application
-CMD ["node", "server.js"]
+# Apply any pending DB migrations against the data volume, then start the server.
+# migrate-runtime.mjs is idempotent: it creates the schema on an empty volume and
+# is a no-op when the volume is already up to date.
+CMD ["sh", "-c", "node scripts/migrate-runtime.mjs && node server.js"]

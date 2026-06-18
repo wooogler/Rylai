@@ -26,6 +26,11 @@ export async function GET(request: NextRequest) {
       id: row.messageId,
       text: row.text,
       sender: row.sender as "user" | "other",
+      stage: row.stage,
+      classification: row.classification,
+      tacticRecognized: row.tacticRecognized,
+      protectiveStrategy: row.protectiveStrategy,
+      rationale: row.rationale,
       timestamp: new Date(row.timestamp),
       feedbackGenerated: false,
     }));
@@ -71,6 +76,7 @@ export async function POST(request: NextRequest) {
       messageId: message.id,
       text: message.text,
       sender: message.sender,
+      stage: typeof message.stage === 'number' ? message.stage : null,
       timestamp,
       createdAt: new Date(),
     });
@@ -79,6 +85,36 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error saving message:', error);
     return NextResponse.json({ error: 'Failed to save message' }, { status: 500 });
+  }
+}
+
+// PATCH - Persist the feedback-agent classification onto a participant message
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { userId, scenarioId, messageId, classification, tacticRecognized, protectiveStrategy, rationale } = body;
+
+    if (!userId || !scenarioId || !messageId) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    await db.update(userMessages)
+      .set({
+        classification: classification ?? null,
+        tacticRecognized: typeof tacticRecognized === 'boolean' ? tacticRecognized : null,
+        protectiveStrategy: typeof protectiveStrategy === 'boolean' ? protectiveStrategy : null,
+        rationale: rationale ?? null,
+      })
+      .where(and(
+        eq(userMessages.userId, userId),
+        eq(userMessages.scenarioId, scenarioId),
+        eq(userMessages.messageId, messageId)
+      ));
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error saving classification:', error);
+    return NextResponse.json({ error: 'Failed to save classification' }, { status: 500 });
   }
 }
 

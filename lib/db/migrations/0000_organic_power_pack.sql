@@ -19,7 +19,7 @@ CREATE TABLE `scenarios` (
 	`predator_name` text NOT NULL,
 	`handle` text NOT NULL,
 	`stage` integer DEFAULT 1 NOT NULL,
-	`system_prompt` text NOT NULL,
+	`auto_stage` integer DEFAULT true NOT NULL,
 	`preset_messages` text NOT NULL,
 	`description` text NOT NULL,
 	`created_at` integer NOT NULL,
@@ -48,6 +48,11 @@ CREATE TABLE `user_messages` (
 	`message_id` text NOT NULL,
 	`text` text NOT NULL,
 	`sender` text NOT NULL,
+	`stage` integer,
+	`classification` text,
+	`tactic_recognized` integer,
+	`protective_strategy` integer,
+	`rationale` text,
 	`timestamp` integer NOT NULL,
 	`created_at` integer NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE cascade,
@@ -59,11 +64,11 @@ CREATE INDEX `user_messages_message_id_idx` ON `user_messages` (`message_id`);--
 CREATE TABLE `users` (
 	`id` text PRIMARY KEY NOT NULL,
 	`username` text NOT NULL,
-	`user_type` text NOT NULL,
-	`common_system_prompt` text,
-	`feedback_persona` text,
-	`feedback_instruction` text,
-	`created_at` integer NOT NULL
+	`password_hash` text NOT NULL,
+	`user_type` text DEFAULT 'user' NOT NULL,
+	`age` integer,
+	`created_at` integer NOT NULL,
+	`last_login_at` integer
 );
 --> statement-breakpoint
-CREATE UNIQUE INDEX `username_user_type_idx` ON `users` (`username`,`user_type`);
+CREATE UNIQUE INDEX `users_username_idx` ON `users` (`username`);

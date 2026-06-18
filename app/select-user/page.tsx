@@ -3,171 +3,128 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useScenarioStore } from "../store/useScenarioStore";
-import { ArrowLeft, Trash2, RotateCcw, LogOut } from "lucide-react";
+import { RotateCcw, LogOut } from "lucide-react";
 import Link from "next/link";
 
-interface User {
+interface Educator {
   id: string;
   username: string;
   createdAt: Date | string;
-}
-
-interface AdminWithProgress extends User {
   scenarioCount: number;
   visitedCount: number;
 }
 
 export default function SelectUserPage() {
   const router = useRouter();
-  const { setCurrentUser, loadUserScenarios, loadScenarioProgress, resetScenarioProgress, logout, userType, userId, isAuthenticated } = useScenarioStore();
-  const [users, setUsers] = useState<User[]>([]);
-  const [adminsWithProgress, setAdminsWithProgress] = useState<AdminWithProgress[]>([]);
+  const {
+    setAdminContext,
+    loadUserScenarios,
+    resetScenarioProgress,
+    logout,
+    userType,
+    userId,
+    isAuthenticated,
+    authHydrated,
+  } = useScenarioStore();
+  const [educators, setEducators] = useState<Educator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  // Redirect once auth is known: educators belong on /admin, unauthenticated on /.
   useEffect(() => {
-    // Wait for authentication state to be loaded from persist store
-    if (isAuthenticated && userType !== null) {
-      loadUsersWithProgress();
+    if (!authHydrated) return;
+    if (!isAuthenticated) {
+      router.replace("/");
+    } else if (userType !== "user") {
+      router.replace("/admin");
+    } else {
+      loadEducators();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAuthenticated, userType, userId]);
+  }, [authHydrated, isAuthenticated, userType, userId]);
 
-  const loadUsersWithProgress = async () => {
+  const loadEducators = async () => {
     try {
-      const response = await fetch('/api/get-users-with-progress', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, userType })
+      const response = await fetch("/api/get-users-with-progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, userType }),
       });
 
-      if (!response.ok) throw new Error('Failed to load users');
+      if (!response.ok) throw new Error("Failed to load educators");
 
       const data = await response.json();
-      setUsers(data.users || []);
-
-      if (data.adminsWithProgress) {
-        setAdminsWithProgress(data.adminsWithProgress);
-      }
+      setEducators(data.adminsWithProgress || []);
     } catch (err) {
-      console.error("Error loading users:", err);
+      console.error("Error loading educators:", err);
       setError(true);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleUserSelect = async (selectedUsername: string) => {
+  const handleSelect = async (educatorId: string) => {
     try {
       setIsLoading(true);
 
-      if (userType === 'user' || userType === 'parent') {
-        // Learner/Parent selecting an admin's scenarios
-        // Keep the learner's identity but load admin's scenarios
-        const response = await fetch('/api/get-admin-info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: selectedUsername })
-        });
+      const response = await fetch("/api/get-admin-info", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminId: educatorId }),
+      });
+      if (!response.ok) throw new Error("Educator not found");
 
-        if (!response.ok) {
-          throw new Error('Admin user not found');
-        }
+      const { adminUser } = await response.json();
+      setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null);
 
-        const { adminUser } = await response.json();
+      await loadUserScenarios();
 
-        // Update store with selected admin's info
-        const store = useScenarioStore.getState();
-        store.adminUserId = adminUser.id;
-        store.commonSystemPrompt = adminUser.commonSystemPrompt;
-        store.feedbackPersona = adminUser.feedbackPersona;
-        store.feedbackInstruction = adminUser.feedbackInstruction;
-
-        await loadUserScenarios();
-
-        // Go to first scenario's chat page - get scenarios from store after loading
-        const updatedScenarios = useScenarioStore.getState().scenarios;
-        const firstSlug = updatedScenarios[0]?.slug || "stage-1-friendship";
-        console.log('[handleUserSelect] Navigating to scenario:', { firstSlug, scenarioId: updatedScenarios[0]?.id, totalScenarios: updatedScenarios.length });
-        router.push(`/chat/${firstSlug}`);
-      } else {
-        // Admin viewing another user's scenarios
-        await setCurrentUser(selectedUsername, "admin");
-        await loadUserScenarios();
-
-        // Go to first scenario's chat page - get scenarios from store after loading
-        const updatedScenarios = useScenarioStore.getState().scenarios;
-        const firstSlug = updatedScenarios[0]?.slug || "stage-1-friendship";
-        router.push(`/chat/${firstSlug}`);
+      const scenarios = useScenarioStore.getState().scenarios;
+      if (scenarios.length === 0) {
+        setError(true);
+        setIsLoading(false);
+        return;
       }
+      router.push(`/chat/${scenarios[0].slug}`);
     } catch (err) {
-      console.error("Error loading user:", err);
+      console.error("Error selecting educator:", err);
       setError(true);
       setIsLoading(false);
     }
   };
 
-  const handleResetProgress = async (e: React.MouseEvent, adminId: string, adminUsername: string) => {
+  const handleResetProgress = async (e: React.MouseEvent, educatorId: string, name: string) => {
     e.stopPropagation();
 
-    if (!confirm(`Are you sure you want to reset ALL progress for "${adminUsername}"?\n\nThis will permanently delete:\n• All messages from all scenarios\n• All feedback from all scenarios\n• All visit history\n\nThis action cannot be undone.`)) {
+    if (
+      !confirm(
+        `Are you sure you want to reset ALL progress for "${name}"?\n\nThis will permanently delete:\n• All messages from all scenarios\n• All feedback from all scenarios\n• All visit history\n\nThis action cannot be undone.`
+      )
+    ) {
       return;
     }
 
     try {
       setIsLoading(true);
 
-      // Get all scenarios for this admin
-      const response = await fetch('/api/get-admin-scenarios', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ adminId })
+      const response = await fetch("/api/get-admin-scenarios", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminId: educatorId }),
       });
-
-      if (!response.ok) throw new Error('Failed to get scenarios');
+      if (!response.ok) throw new Error("Failed to get scenarios");
 
       const { scenarios: scenarioData } = await response.json();
-
       if (scenarioData && scenarioData.length > 0) {
-        // Reset each scenario
         for (const scenario of scenarioData) {
           await resetScenarioProgress(scenario.id);
         }
       }
 
-      // Reload the page data
-      await loadUsersWithProgress();
-    } catch (error) {
-      console.error('Failed to reset progress:', error);
-      alert('Failed to reset progress. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleDeleteUser = async (e: React.MouseEvent, userId: string, username: string) => {
-    e.stopPropagation();
-
-    if (!confirm(`Are you sure you want to delete user "${username}" and all their scenarios? This action cannot be undone.`)) {
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const response = await fetch('/api/delete-user', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId })
-      });
-
-      if (!response.ok) throw new Error('Failed to delete user');
-
-      // Reload users list
-      await loadUsersWithProgress();
+      await loadEducators();
     } catch (err) {
-      console.error("Error deleting user:", err);
-      alert("Failed to delete user. Please try again.");
+      console.error("Failed to reset progress:", err);
+      alert("Failed to reset progress. Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -176,7 +133,7 @@ export default function SelectUserPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
-        <div className="text-gray-600">Loading users...</div>
+        <div className="text-gray-600">Loading educators...</div>
       </div>
     );
   }
@@ -185,7 +142,7 @@ export default function SelectUserPage() {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gradient-to-b from-purple-50 to-white">
         <div className="text-center">
-          <p className="text-red-600 mb-4">Failed to load users</p>
+          <p className="text-red-600 mb-4">Failed to load educators</p>
           <Link href="/" className="text-purple-600 hover:underline">
             Go back to home
           </Link>
@@ -199,18 +156,11 @@ export default function SelectUserPage() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <div className="flex justify-between items-center mb-4">
-            {userType !== 'user' && userType !== 'parent' && (
-              <Link href="/" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-                <ArrowLeft className="w-5 h-5 mr-2" />
-                Back to Home
-              </Link>
-            )}
-            {(userType === 'user' || userType === 'parent') && <div></div>}
+          <div className="flex justify-end items-center mb-4">
             <button
-              onClick={() => {
-                logout();
-                router.push('/');
+              onClick={async () => {
+                await logout();
+                router.push("/");
               }}
               className="inline-flex items-center text-gray-600 hover:text-gray-900"
             >
@@ -218,98 +168,68 @@ export default function SelectUserPage() {
               Logout
             </button>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900">
-            {userType === 'user' ? 'Select a Teacher' : userType === 'parent' ? 'Select an Educator' : 'Select a User Account'}
-          </h1>
+          <h1 className="text-4xl font-bold text-gray-900">Select a Teacher</h1>
           <p className="text-xl text-gray-600 mt-2">
-            {userType === 'user'
-              ? 'Choose which teacher\'s scenarios you want to practice'
-              : userType === 'parent'
-              ? 'Choose which educator\'s scenarios to view your child\'s progress'
-              : 'Choose from existing user accounts to view their scenarios'}
+            Choose which teacher&apos;s scenarios you want to practice
           </p>
         </div>
 
-        {/* User Cards */}
+        {/* Educator Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {((userType === 'user' || userType === 'parent') ? adminsWithProgress : users).map((user) => {
-            const adminData = (userType === 'user' || userType === 'parent') ? user as AdminWithProgress : null;
-            const progressPercentage = adminData && adminData.scenarioCount > 0
-              ? (adminData.visitedCount / adminData.scenarioCount) * 100
-              : 0;
+          {educators.map((educator) => {
+            const progressPercentage =
+              educator.scenarioCount > 0
+                ? (educator.visitedCount / educator.scenarioCount) * 100
+                : 0;
 
             return (
               <div
-                key={user.id}
+                key={educator.id}
                 className="bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow border-2 border-transparent hover:border-purple-500 relative group"
               >
-                <button
-                  onClick={() => handleUserSelect(user.username)}
-                  className="w-full p-6 text-left"
-                >
+                <button onClick={() => handleSelect(educator.id)} className="w-full p-6 text-left">
                   <div className="flex items-center justify-between mb-3">
                     <div>
-                      <h3 className="text-lg font-semibold text-gray-900">
-                        {user.username}
-                      </h3>
+                      <h3 className="text-lg font-semibold text-gray-900">{educator.username}</h3>
                       <p className="text-sm text-gray-500 mt-1">
-                        Created: {new Date(user.createdAt).toLocaleDateString()}
+                        Created: {new Date(educator.createdAt).toLocaleDateString()}
                       </p>
                     </div>
-                    <div className="text-purple-600 font-semibold">
-                      →
-                    </div>
+                    <div className="text-purple-600 font-semibold">→</div>
                   </div>
 
-                  {/* Progress Bar - Only for learner/parent viewing admins */}
-                  {(userType === 'user' || userType === 'parent') && adminData && (
-                    <div className="mt-4 pt-4 border-t border-gray-100">
-                      <div className="flex justify-between text-xs text-gray-600 mb-2">
-                        <span>Progress</span>
-                        <span className="font-semibold">
-                          {adminData.visitedCount} / {adminData.scenarioCount} scenarios
-                        </span>
-                      </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className={`h-2 rounded-full transition-all ${
-                            progressPercentage === 0
-                              ? 'bg-gray-300'
-                              : progressPercentage === 100
-                              ? 'bg-green-500'
-                              : 'bg-purple-600'
-                          }`}
-                          style={{ width: `${progressPercentage}%` }}
-                        />
-                      </div>
-                      {progressPercentage === 100 && (
-                        <p className="text-xs text-green-600 mt-2 font-semibold">
-                          ✓ Completed!
-                        </p>
-                      )}
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <div className="flex justify-between text-xs text-gray-600 mb-2">
+                      <span>Progress</span>
+                      <span className="font-semibold">
+                        {educator.visitedCount} / {educator.scenarioCount} scenarios
+                      </span>
                     </div>
-                  )}
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div
+                        className={`h-2 rounded-full transition-all ${
+                          progressPercentage === 0
+                            ? "bg-gray-300"
+                            : progressPercentage === 100
+                            ? "bg-green-500"
+                            : "bg-purple-600"
+                        }`}
+                        style={{ width: `${progressPercentage}%` }}
+                      />
+                    </div>
+                    {progressPercentage === 100 && (
+                      <p className="text-xs text-green-600 mt-2 font-semibold">✓ Completed!</p>
+                    )}
+                  </div>
                 </button>
 
-                {/* Reset button - Only for learner with progress (not for parents) */}
-                {userType === 'user' && adminData && adminData.visitedCount > 0 && (
+                {educator.visitedCount > 0 && (
                   <button
-                    onClick={(e) => handleResetProgress(e, user.id, user.username)}
+                    onClick={(e) => handleResetProgress(e, educator.id, educator.username)}
                     className="absolute top-2 right-2 p-2 text-orange-500 hover:text-orange-700 hover:bg-orange-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
                     title="Reset all progress for this teacher"
                   >
                     <RotateCcw className="w-4 h-4" />
-                  </button>
-                )}
-
-                {/* Delete button - Only for admin (not for learner or parent) */}
-                {userType !== 'user' && userType !== 'parent' && (
-                  <button
-                    onClick={(e) => handleDeleteUser(e, user.id, user.username)}
-                    className="absolute top-2 right-2 p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Delete user"
-                  >
-                    <Trash2 className="w-4 h-4" />
                   </button>
                 )}
               </div>
@@ -317,11 +237,11 @@ export default function SelectUserPage() {
           })}
         </div>
 
-        {users.length === 0 && (
+        {educators.length === 0 && (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <p className="text-gray-600 mb-4">No users found.</p>
+            <p className="text-gray-600 mb-4">No educators have signed up yet.</p>
             <Link href="/" className="text-purple-600 hover:underline">
-              Create a new account
+              Go back to home
             </Link>
           </div>
         )}

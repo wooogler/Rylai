@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut } from "lucide-react";
-import { useScenarioStore, type Scenario, type Message } from "../store/useScenarioStore";
+import { useScenarioStore, type Scenario, type Message, AGE_BRACKETS } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 
 function generateSlug(name: string): string {
@@ -11,6 +11,17 @@ function generateSlug(name: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/(^-|-$)/g, '');
+}
+
+// Slugs are used in the chat URL, so they must be unique within an educator's set.
+// If the base slug is already taken, append -2, -3, ...
+function uniqueSlug(base: string, taken: string[]): string {
+  const root = base || 'scenario';
+  const set = new Set(taken);
+  if (!set.has(root)) return root;
+  let n = 2;
+  while (set.has(`${root}-${n}`)) n++;
+  return `${root}-${n}`;
 }
 
 function generateHandle(predatorName: string): string {
@@ -25,49 +36,44 @@ export default function AdminPage() {
   const router = useRouter();
   const {
     scenarios,
-    commonSystemPrompt,
-    feedbackPersona,
-    feedbackInstruction,
+    age,
     isAdmin,
     isAuthenticated,
+    authHydrated,
     currentUser,
     logout,
     addScenario,
     deleteScenario,
     updateScenario,
-    setCommonSystemPrompt,
-    setFeedbackPrompts,
+    setAge,
     deleteAccount
   } = useScenarioStore();
 
-  // Redirect if not authenticated or not admin
+  // Redirect if not authenticated or not admin (wait for cookie hydration first)
   useEffect(() => {
-    if (!isAuthenticated || !isAdmin) {
+    if (authHydrated && (!isAuthenticated || !isAdmin)) {
       router.push('/');
     }
-  }, [isAuthenticated, isAdmin, router]);
+  }, [authHydrated, isAuthenticated, isAdmin, router]);
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
-  const [editingCommonPrompt, setEditingCommonPrompt] = useState("");
-  const [editingFeedbackPersona, setEditingFeedbackPersona] = useState("");
-  const [editingFeedbackInstruction, setEditingFeedbackInstruction] = useState("");
+  const [editingAge, setEditingAge] = useState<number | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEditingScenarios(JSON.parse(JSON.stringify(scenarios)));
-    setEditingCommonPrompt(commonSystemPrompt);
-    setEditingFeedbackPersona(feedbackPersona);
-    setEditingFeedbackInstruction(feedbackInstruction);
-  }, [scenarios, commonSystemPrompt, feedbackPersona, feedbackInstruction]);
+    setEditingAge(age);
+  }, [scenarios, age]);
 
   const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
 
     if (field === 'name') {
+      const taken = updated.filter((_, i) => i !== index).map(s => s.slug);
       updated[index] = {
         ...updated[index],
         name: value as string,
-        slug: generateSlug(value as string),
+        slug: uniqueSlug(generateSlug(value as string), taken),
       };
     } else if (field === 'predatorName') {
       updated[index] = {
@@ -116,14 +122,14 @@ export default function AdminPage() {
   const handleAddScenario = () => {
     const newScenario: Scenario = {
       id: Math.max(...editingScenarios.map(s => s.id), 0) + 1,
-      slug: "new-scenario",
+      slug: uniqueSlug("new-scenario", editingScenarios.map(s => s.slug)),
       name: "New Scenario",
       predatorName: "New Predator",
       handle: "new_predator",
-      systemPrompt: "",
       presetMessages: [],
       description: "New scenario description",
       stage: 1,
+      autoStage: true,
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
@@ -138,11 +144,8 @@ export default function AdminPage() {
 
   const handleSave = async () => {
     try {
-      // Save common system prompt
-      await setCommonSystemPrompt(editingCommonPrompt);
-
-      // Save feedback prompts
-      await setFeedbackPrompts(editingFeedbackPersona, editingFeedbackInstruction);
+      // Save the global age setting
+      await setAge(editingAge);
 
       // Update existing scenarios
       for (const scenario of editingScenarios) {
@@ -163,18 +166,16 @@ export default function AdminPage() {
       }
 
       setHasChanges(false);
-      alert("Scenarios saved successfully!");
+      alert("Settings saved successfully!");
     } catch (error) {
-      console.error("Error saving scenarios:", error);
-      alert("Failed to save scenarios. Please try again.");
+      console.error("Error saving settings:", error);
+      alert("Failed to save settings. Please try again.");
     }
   };
 
   const handleExport = () => {
     const exportData = {
-      commonSystemPrompt: editingCommonPrompt,
-      feedbackPersona: editingFeedbackPersona,
-      feedbackInstruction: editingFeedbackInstruction,
+      age: editingAge,
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -205,14 +206,8 @@ export default function AdminPage() {
           setEditingScenarios(imported);
         } else if (imported.scenarios) {
           setEditingScenarios(imported.scenarios);
-          if (imported.commonSystemPrompt) {
-            setEditingCommonPrompt(imported.commonSystemPrompt);
-          }
-          if (imported.feedbackPersona) {
-            setEditingFeedbackPersona(imported.feedbackPersona);
-          }
-          if (imported.feedbackInstruction) {
-            setEditingFeedbackInstruction(imported.feedbackInstruction);
+          if (typeof imported.age === 'number') {
+            setEditingAge(imported.age);
           }
         }
 
@@ -254,7 +249,6 @@ export default function AdminPage() {
     try {
       await deleteAccount();
       alert("Account deleted successfully.");
-      logout();
       router.push("/");
     } catch (error) {
       console.error("Failed to delete account:", error);
@@ -264,7 +258,7 @@ export default function AdminPage() {
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
@@ -304,7 +298,8 @@ export default function AdminPage() {
                 className="hidden"
               />
               <Button
-                onClick={() => router.push(`/chat/${scenarios[0].slug}`)}
+                onClick={() => scenarios[0] && router.push(`/chat/${scenarios[0].slug}`)}
+                disabled={scenarios.length === 0}
                 variant="secondary"
                 size="small"
               >
@@ -321,8 +316,8 @@ export default function AdminPage() {
                 Save Changes
               </Button>
               <Button
-                onClick={() => {
-                  logout();
+                onClick={async () => {
+                  await logout();
                   router.push("/");
                 }}
                 variant="ghost"
@@ -335,83 +330,41 @@ export default function AdminPage() {
           </div>
           <h1 className="text-3xl font-bold">Scenario Management</h1>
           <p className="text-gray-600 mt-2">
-            Configure scenarios, prompts, and feedback for your training sessions
+            Configure the learner age group and your training scenarios. The predator
+            persona and feedback are fixed by the system and are not editable here.
           </p>
         </div>
 
-        {/* Feedback Section */}
+        {/* Global Settings */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Feedback Settings</h2>
-
-          {/* Feedback Prompts */}
-          <div className="bg-white rounded-lg shadow-md p-6 mb-4">
-            <h3 className="text-lg font-semibold mb-3">Feedback Prompts</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Customize how the AI provides feedback to learners after conversations.
+          <h2 className="text-2xl font-bold mb-4 text-gray-800">Global Settings</h2>
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <label className="block text-lg font-semibold mb-1">Learner Age Group</label>
+            <p className="text-sm text-gray-600 mb-3">
+              Applies to all of your scenarios. The age group scales how the simulation
+              handles sensitive (Stage 5) content.
             </p>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Persona (Role Definition)
-                </label>
-                <p className="text-xs text-gray-500 mb-2">
-                  Define the AI&apos;s role and perspective when giving feedback.
-                </p>
-                <textarea
-                  value={editingFeedbackPersona}
-                  onChange={(e) => {
-                    setEditingFeedbackPersona(e.target.value);
-                    setHasChanges(true);
-                  }}
-                  rows={2}
-                  placeholder="You are an educational assistant helping learners..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Instruction (Feedback Guidelines)
-                </label>
-                <p className="text-xs text-gray-500 mb-2">
-                  Specify what the feedback should focus on and how it should be structured.
-                </p>
-                <textarea
-                  value={editingFeedbackInstruction}
-                  onChange={(e) => {
-                    setEditingFeedbackInstruction(e.target.value);
-                    setHasChanges(true);
-                  }}
-                  rows={8}
-                  placeholder="Provide constructive feedback focusing on..."
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
-                />
-              </div>
-            </div>
+            <select
+              value={editingAge === null ? '' : String(editingAge)}
+              onChange={(e) => {
+                setEditingAge(e.target.value === '' ? null : parseInt(e.target.value));
+                setHasChanges(true);
+              }}
+              className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+            >
+              <option value="">Not set (use system default)</option>
+              {AGE_BRACKETS.map((b) => (
+                <option key={b.value} value={b.value}>
+                  Ages {b.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
 
         {/* Scenario Section */}
         <div>
           <h2 className="text-2xl font-bold mb-4 text-gray-800">Scenario Settings</h2>
-
-          {/* Common System Prompt */}
-        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-4">Common System Prompt</h2>
-          <p className="text-sm text-gray-600 mb-3">
-            This prompt will be appended to all scenario-specific prompts.
-          </p>
-          <textarea
-            value={editingCommonPrompt}
-            onChange={(e) => {
-              setEditingCommonPrompt(e.target.value);
-              setHasChanges(true);
-            }}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
-          />
-        </div>
 
           {/* Scenarios List */}
           <div className="space-y-6">
@@ -447,11 +400,10 @@ export default function AdminPage() {
                         onChange={(e) => handleUpdateScenario(scenarioIndex, 'name', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                       />
-                      <p className="text-xs text-gray-500 mt-1">Slug: {scenario.slug}</p>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Stage
+                        {scenario.autoStage ? 'Starting Stage' : 'Fixed Stage'}
                       </label>
                       <select
                         value={scenario.stage}
@@ -467,6 +419,27 @@ export default function AdminPage() {
                         <option value={6}>Stage 6: Conclusion</option>
                       </select>
                     </div>
+                  </div>
+
+                  {/* Auto Stage toggle */}
+                  <div className="flex items-start gap-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <input
+                      id={`auto-stage-${scenario.id}`}
+                      type="checkbox"
+                      checked={scenario.autoStage}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'autoStage', e.target.checked)}
+                      className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer"
+                    />
+                    <label htmlFor={`auto-stage-${scenario.id}`} className="cursor-pointer">
+                      <span className="block text-sm font-medium text-gray-800">
+                        Automatically change the grooming stage
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        When on, the model changes the stage as the conversation develops and
+                        responds accordingly — it can move <span className="font-medium">up or down</span> from
+                        the starting stage above. When off, the conversation stays fixed at that stage.
+                      </span>
+                    </label>
                   </div>
 
                   <div>
@@ -494,19 +467,6 @@ export default function AdminPage() {
                     <p className="text-xs text-gray-500 mt-1">Handle: {scenario.handle}</p>
                   </div>
                 </div>
-              </div>
-
-              {/* System Prompt */}
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  System Prompt
-                </label>
-                <textarea
-                  value={scenario.systemPrompt}
-                  onChange={(e) => handleUpdateScenario(scenarioIndex, 'systemPrompt', e.target.value)}
-                  rows={8}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm"
-                />
               </div>
 
               {/* Preset Messages */}

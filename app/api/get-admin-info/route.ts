@@ -5,25 +5,24 @@ import { and, eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
-    const { username } = await req.json();
+    const { adminId } = await req.json();
 
-    if (!username) {
+    if (!adminId) {
       return NextResponse.json(
-        { error: 'Username is required' },
+        { error: 'adminId is required' },
         { status: 400 }
       );
     }
 
     const adminUser = await db.query.users.findFirst({
       where: and(
-        eq(users.username, username),
+        eq(users.id, adminId),
         eq(users.userType, 'admin')
       ),
       columns: {
         id: true,
-        commonSystemPrompt: true,
-        feedbackPersona: true,
-        feedbackInstruction: true
+        username: true,
+        age: true
       }
     });
 
@@ -44,10 +43,10 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH - Update admin prompts
+// PATCH - Update the educator's global settings (currently just `age`)
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, commonSystemPrompt, feedbackPersona, feedbackInstruction } = await req.json();
+    const { userId, age } = await req.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -56,14 +55,14 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const updates: Record<string, string> = {};
-    if (commonSystemPrompt !== undefined) updates.commonSystemPrompt = commonSystemPrompt;
-    if (feedbackPersona !== undefined) updates.feedbackPersona = feedbackPersona;
-    if (feedbackInstruction !== undefined) updates.feedbackInstruction = feedbackInstruction;
+    const updates: Record<string, number | null> = {};
+    if (age !== undefined) updates.age = age;
 
-    await db.update(users)
-      .set(updates)
-      .where(eq(users.id, userId));
+    if (Object.keys(updates).length > 0) {
+      await db.update(users)
+        .set(updates)
+        .where(eq(users.id, userId));
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

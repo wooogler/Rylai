@@ -6,11 +6,11 @@ RYLAI는 AI 기반의 실시간 시뮬레이션을 통해 청소년들이 온라
 
 ## 주요 기능
 
-- 🤖 **다양한 AI 모델 지원** - OpenRouter를 통해 5개의 AI 모델 선택 가능
+- 🤖 **AI 가해자 시뮬레이션** - VT Custom(StagePilot), 그루밍 단계 자동 예측
 - 📊 **7단계 그루밍 시뮬레이션** - 실제 그루밍 과정을 단계별로 학습
 - 💡 **실시간 피드백** - 대화 중 즉각적인 교육 피드백 제공
 - 👨‍🏫 **교육자 포털** - 맞춤형 시나리오 생성 및 관리
-- 👪 **학부모 포털** - 자녀의 학습 진행상황 모니터링
+- 🔐 **아이디(username) + 비밀번호 계정** - 교육자/학습자 구분 (이메일 미수집)
 - 🔒 **안전한 학습 환경** - 통제된 환경에서의 안전한 교육
 
 ## 빠른 시작
@@ -27,7 +27,7 @@ npm install
 
 # 3. 환경 변수 설정
 cp .env.example .env.local
-# .env.local 파일을 열어 OpenRouter 또는 OpenAI API 키 입력
+# .env.local 파일을 열어 SESSION_SECRET, ADMIN_PASSCODE, OPENAI_API_KEY 입력
 
 # 4. 데이터베이스 마이그레이션
 npm run db:migrate
@@ -60,11 +60,14 @@ curl http://localhost:3000/api/health
 
 ## 로그인 정보
 
-| 사용자 유형 | 비밀번호 | 용도 |
+아이디(username) + 비밀번호로 가입합니다(이메일 미수집). 가입 시 교육자 passcode 입력 여부로 계정 유형이 결정됩니다.
+
+| 사용자 유형 | 가입 방법 | 용도 |
 |------------|---------|-----|
-| 교육자/관리자 | `rylai2025` | 시나리오 생성 및 관리 |
-| 학습자 | `user2025` | 교육자가 만든 시나리오 학습 |
-| 학부모 | `parent2025` | 자녀 학습 진행상황 조회 (읽기 전용) |
+| 교육자/관리자 | 교육자 passcode(`ADMIN_PASSCODE`) **입력** | 시나리오 생성 및 관리 |
+| 학습자 | passcode **없이** 가입 | 교육자가 만든 시나리오 학습 |
+
+비밀번호는 bcrypt로 해싱되고, 세션은 HMAC 서명된 httpOnly 쿠키를 사용합니다.
 
 ## 기술 스택
 
@@ -72,45 +75,30 @@ curl http://localhost:3000/api/health
 - **UI**: React 19, Tailwind CSS 4
 - **상태 관리**: Zustand with persist middleware
 - **데이터베이스**: SQLite with Drizzle ORM
-- **AI**: OpenRouter (5개 모델 지원: GPT-4o, Mistral 7B, Grok 4.1, Gemini 2.0, DeepSeek V3.2)
+- **인증**: 아이디(username) + 비밀번호 (bcryptjs, 최소 8자), Zod 검증, HMAC 서명 httpOnly 쿠키
+- **AI**: 가해자 채팅은 VT Custom(StagePilot), 피드백은 OpenAI Responses API
 - **배포**: Docker + Docker Compose
 
-## 지원되는 AI 모델
+## AI 모델
 
-채팅 화면에서 다음 모델들을 선택할 수 있습니다:
+모델 선택 기능은 없으며, 두 가지 역할로 고정되어 있습니다:
 
-1. **GPT-4o** (OpenAI) - 최신 GPT-4 Omni 모델 (기본값)
-   - 컨텍스트: 128K 토큰
+- **가해자 채팅**: VT Custom(StagePilot) 세션 기반 엔드포인트
+  (`https://rylai.cs.vt.edu/llm`). 그루밍 단계를 자동 예측하며 API 키가 필요 없습니다.
+- **피드백**: OpenAI **Responses API**, 단일 모델(`FEEDBACK_MODEL`, 기본 `gpt-5.5`).
+  `OPENAI_API_KEY`가 필요합니다.
 
-2. **Mistral 7B Instruct** (Mistral AI)
-   - 컨텍스트: 32K 토큰
-
-3. **Grok 4.1 Fast** (xAI)
-   - 컨텍스트: 131K 토큰
-
-4. **Gemini 2.0 Flash** (Google)
-   - 컨텍스트: 1M 토큰
-
-5. **DeepSeek V3.2** (DeepSeek)
-   - 컨텍스트: 65K 토큰
+피드백 모델은 환경 변수 `FEEDBACK_MODEL`로 변경할 수 있습니다.
 
 ## 환경 변수
 
 | 변수명 | 필수 | 기본값 | 설명 |
 |-------|-----|-------|------|
 | `DATABASE_URL` | 아니오 | `./data/rylai.db` | SQLite 데이터베이스 파일 경로 |
-| `OPENROUTER_API_KEY` | 필수 | - | OpenRouter API 키 (5개 모델 지원) |
-| `OPENAI_API_KEY` | 아니오 | - | OpenAI API 키 (직접 OpenAI 사용 시) |
-| `NEXT_PUBLIC_USE_LOCAL_API` | 아니오 | `false` | 로컬 Mistral-7B 사용 여부 |
-
-**참고**: `OPENROUTER_API_KEY`는 필수입니다. OpenRouter는 모든 5개 지원 모델에 접근하는 데 필요합니다.
-
-### OpenRouter API 키 받기
-
-1. [OpenRouter](https://openrouter.ai/) 회원가입
-2. 계정에 크레딧 추가
-3. 대시보드에서 API 키 생성
-4. `.env.local` (또는 `.env`) 파일에 키 추가
+| `SESSION_SECRET` | 예(운영) | 개발용 기본값 | 세션 쿠키 서명 키 |
+| `ADMIN_PASSCODE` | 예 | - | 교육자(관리자) 가입용 passcode |
+| `OPENAI_API_KEY` | 예 | - | 피드백 생성용 OpenAI API 키 |
+| `FEEDBACK_MODEL` | 아니오 | `gpt-5.5` | 피드백 모델 (키에서 사용 가능한 모델) |
 
 ## 그루밍 단계
 
@@ -129,9 +117,6 @@ curl http://localhost:3000/api/health
 ```bash
 # 개발 서버 (Turbopack)
 npm run dev
-
-# 로컬 API로 개발
-npm run dev:local
 
 # 프로덕션 빌드
 npm run build
@@ -176,7 +161,8 @@ docker-compose down -v
 
 ## 프로덕션 배포 체크리스트
 
-- [ ] 기본 비밀번호 변경
+- [ ] 강력한 `SESSION_SECRET` 설정 (예: `openssl rand -hex 32`)
+- [ ] 기본값이 아닌 `ADMIN_PASSCODE` 설정
 - [ ] HTTPS 설정 (nginx/caddy 리버스 프록시)
 - [ ] 방화벽 규칙 설정
 - [ ] 정기 데이터베이스 백업 설정
@@ -195,8 +181,8 @@ docker-compose restart
 
 ### API 키 오류
 
-1. `.env` 파일에 올바른 API 키가 있는지 확인
-2. OpenRouter/OpenAI 계정에 크레딧이 있는지 확인
+1. `.env` 파일에 올바른 `OPENAI_API_KEY`가 있는지 확인
+2. OpenAI 계정에 크레딧/쿼터가 있는지 확인 (피드백 생성에 필요)
 3. 컨테이너 재시작: `docker-compose restart`
 
 ### 포트가 이미 사용 중
@@ -214,7 +200,7 @@ docker-compose restart
 ## 감사의 말
 
 - [Next.js](https://nextjs.org)로 구축
-- [OpenRouter](https://openrouter.ai)의 AI 제공
+- [OpenAI](https://openai.com)의 AI 제공
 - [Drizzle ORM](https://orm.drizzle.team)의 데이터베이스
 
 ---

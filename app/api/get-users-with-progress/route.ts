@@ -16,8 +16,8 @@ export async function POST(req: NextRequest) {
 
     // Load users based on type
     let userData;
-    if (userType === 'user' || userType === 'parent') {
-      // Load admins only
+    if (userType === 'user') {
+      // Learners see educators (admins) only
       userData = await db.query.users.findMany({
         where: eq(users.userType, 'admin'),
         orderBy: [asc(users.username)],
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
         }
       });
     } else {
-      // Load all users
+      // Admins can see all users
       userData = await db.query.users.findMany({
         orderBy: [asc(users.username)],
         columns: {
@@ -39,9 +39,9 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // For learner/parent, load progress data
+    // For learners, load progress data against each educator's scenarios
     let adminsWithProgress = null;
-    if ((userType === 'user' || userType === 'parent') && userId) {
+    if (userType === 'user' && userId) {
       // Load scenario progress for this user
       const progressData = await db.query.scenarioProgress.findMany({
         where: eq(scenarioProgressTable.userId, userId)

@@ -1,11 +1,14 @@
-import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
 import https from 'https';
-import { getModelById, getOpenRouterConfig, DEFAULT_MODEL_ID, VT_CUSTOM_BASE_URL } from '@/lib/ai-models';
+import { VT_CUSTOM_BASE_URL } from '@/lib/ai-models';
 
+// The VT Custom (StagePilot) endpoint uses a self-signed certificate.
 const vtHttpsAgent = new https.Agent({ rejectUnauthorized: false });
 
-function vtFetch(url: string, init: { method: string; headers?: Record<string, string>; body?: string }): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
+function vtFetch(
+  url: string,
+  init: { method: string; headers?: Record<string, string>; body?: string }
+): Promise<{ ok: boolean; status: number; json(): Promise<unknown> }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const req = https.request(
@@ -36,165 +39,98 @@ function vtFetch(url: string, init: { method: string; headers?: Record<string, s
   });
 }
 
-// Legacy local API support
-const useLocalAPI = process.env.NEXT_PUBLIC_USE_LOCAL_API === 'true';
-
-function getOpenAIClient(modelId: string) {
-  const model = getModelById(modelId);
-
-  if (!model) {
-    throw new Error(`Model ${modelId} not found`);
-  }
-
-  // Local model
-  if (model.provider === 'local') {
-    return new OpenAI({
-      apiKey: 'echolab-1234',
-      baseURL: 'http://localhost:8000/v1',
-    });
-  }
-
-  // OpenRouter models
-  if (model.provider === 'openrouter') {
-    const openRouterApiKey = process.env.OPENROUTER_API_KEY;
-    if (!openRouterApiKey) {
-      throw new Error('OPENROUTER_API_KEY not configured');
-    }
-    const config = getOpenRouterConfig(openRouterApiKey);
-    return new OpenAI({
-      apiKey: config.apiKey,
-      baseURL: config.baseURL,
-      defaultHeaders: config.defaultHeaders,
-    });
-  }
-
-  // Direct OpenAI
-  if (model.provider === 'openai') {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) {
-      throw new Error('OPENAI_API_KEY not configured');
-    }
-    return new OpenAI({
-      apiKey: openaiApiKey,
-    });
-  }
-
-  throw new Error(`Unsupported provider: ${model.provider}`);
-}
-
 interface ConversationMessage {
   sender: 'user' | 'other';
   text: string;
 }
 
-async function handleVtCustom(
-  userMessage: string,
-  vtSessionId: string | null,
-  conversationHistory: Array<{ sender: 'user' | 'other'; text: string }>,
-  stageOverride: number | null
-): Promise<NextResponse> {
-  let sessionId = vtSessionId;
+interface SessionConfig {
+  age: number | null;
+  autoStage: boolean;
+  stage: number;
+}
 
-  if (!sessionId) {
-    const sessionRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        initial_history: conversationHistory.map(msg => ({
-          speaker: msg.sender === 'other' ? 'PRED' : 'USER',
-          text: msg.text,
-        })),
-      }),
-    });
-    if (!sessionRes.ok) {
-      throw new Error(`Failed to create VT session: ${sessionRes.status}`);
-    }
-    const sessionData = await sessionRes.json() as { session_id: string };
-    sessionId = sessionData.session_id;
+async function createVtSession(
+  conversationHistory: ConversationMessage[],
+  config: SessionConfig
+): Promise<string> {
+  const sessionRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      initial_history: conversationHistory.map((msg) => ({
+        speaker: msg.sender === 'other' ? 'PRED' : 'USER',
+        text: msg.text,
+      })),
+      age: config.age,
+      auto_stage: config.autoStage,
+      stage: config.stage,
+    }),
+  });
+  if (!sessionRes.ok) {
+    throw new Error(`Failed to create VT session: ${sessionRes.status}`);
   }
+  const sessionData = (await sessionRes.json()) as { session_id: string };
+  return sessionData.session_id;
+}
 
+async function vtTurn(
+  sessionId: string,
+  userMessage: string,
+  stageOverride: number | null
+): Promise<{ ok: boolean; status: number; data?: { predator_response: string; stage: number; stage_label: string } }> {
   const turnRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ victim_message: userMessage, stage: stageOverride }),
   });
-
   if (!turnRes.ok) {
-    throw new Error(`VT turn request failed: ${turnRes.status}`);
+    return { ok: false, status: turnRes.status };
   }
-
-  const turnData = await turnRes.json() as { predator_response: string; stage: number; stage_label: string };
-
-  return NextResponse.json({
-    reply: turnData.predator_response,
-    vtSessionId: sessionId,
-    stage: turnData.stage,
-    stageLabel: turnData.stage_label,
-  });
+  const data = (await turnRes.json()) as {
+    predator_response: string;
+    stage: number;
+    stage_label: string;
+  };
+  return { ok: true, status: turnRes.status, data };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, systemMessage, commonSystemPrompt, userMessage, modelId, vtSessionId, stageOverride } = await req.json();
+    const { conversationHistory, userMessage, vtSessionId, stageOverride, age, autoStage, stage } = await req.json();
+    const history: ConversationMessage[] = conversationHistory ?? [];
+    const turnStage: number | null = stageOverride ?? null;
+    const sessionConfig: SessionConfig = {
+      age: typeof age === 'number' ? age : null,
+      autoStage: autoStage !== false, // default true
+      stage: typeof stage === 'number' ? stage : 1,
+    };
 
-    // Determine which model to use
-    let selectedModelId = modelId || DEFAULT_MODEL_ID;
-
-    // Legacy support: if NEXT_PUBLIC_USE_LOCAL_API is true, use local model
-    if (useLocalAPI && !modelId) {
-      selectedModelId = 'local-mistral-7b';
+    // Reuse the existing VT session, or seed a new one from the conversation history.
+    let sessionId: string = vtSessionId ?? null;
+    if (!sessionId) {
+      sessionId = await createVtSession(history, sessionConfig);
     }
 
-    const model = getModelById(selectedModelId);
-    if (!model) {
-      return NextResponse.json(
-        { error: `Model ${selectedModelId} not found` },
-        { status: 400 }
-      );
+    let turn = await vtTurn(sessionId, userMessage, turnStage);
+
+    // Graceful fallback: the saved session may have expired/been cleared on the
+    // VT server. Recreate it from history and retry once.
+    if (!turn.ok && vtSessionId) {
+      sessionId = await createVtSession(history, sessionConfig);
+      turn = await vtTurn(sessionId, userMessage, turnStage);
     }
 
-    // VT Custom: session-based API
-    if (model.provider === 'vt-custom') {
-      return await handleVtCustom(userMessage, vtSessionId ?? null, conversationHistory, stageOverride ?? null);
+    if (!turn.ok || !turn.data) {
+      throw new Error(`VT turn request failed: ${turn.status}`);
     }
 
-    // Get appropriate OpenAI client for this model
-    const openai = getOpenAIClient(selectedModelId);
-
-    // Build conversation context
-    const conversationContext = conversationHistory
-      .map((msg: ConversationMessage) => `${msg.sender === 'user' ? 'User' : 'Predator'}: ${msg.text}`)
-      .join('\n');
-
-    // Merge scenario-specific prompt with common prompt
-    const fullSystemPrompt = commonSystemPrompt
-      ? `${systemMessage}\n\n${commonSystemPrompt}`
-      : systemMessage;
-
-    // Combine system prompt, conversation history, and user message
-    const input = `${fullSystemPrompt}
-
-Previous conversation:
-${conversationContext}
-
-User: ${userMessage}
-
-Respond as the character in a short, casual text message (1-2 sentences). Do not use emojis.`;
-
-    const response = await openai.chat.completions.create({
-      model: model.modelId,
-      messages: [
-        {
-          role: 'user',
-          content: input
-        }
-      ],
-      max_tokens: 128
+    return NextResponse.json({
+      reply: turn.data.predator_response,
+      vtSessionId: sessionId,
+      stage: turn.data.stage,
+      stageLabel: turn.data.stage_label,
     });
-
-    const reply = response.choices[0].message.content || '';
-
-    return NextResponse.json({ reply });
   } catch (error) {
     console.error('Chat API error:', error);
     return NextResponse.json(

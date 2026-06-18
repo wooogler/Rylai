@@ -10,11 +10,11 @@ RYLAI is an educational web application that simulates realistic chat conversati
 
 ## Features
 
-- 🤖 Real-time AI-powered predator simulation
+- 🤖 Real-time AI-powered predator simulation (VT Custom / StagePilot, with automatic stage prediction)
 - 📊 7 stages of grooming progression (0-6)
 - 💡 Personalized feedback on conversation responses
 - 👨‍🏫 Educator portal for scenario management
-- 👪 Parent portal for monitoring child progress
+- 🔐 Username + password accounts (educators vs learners)
 - 🔒 Safe, controlled learning environment
 
 ## Tech Stack
@@ -23,7 +23,8 @@ RYLAI is an educational web application that simulates realistic chat conversati
 - **UI**: React 19, Tailwind CSS 4, Lucide Icons
 - **State Management**: Zustand with persist middleware
 - **Database**: SQLite with Drizzle ORM
-- **AI**: OpenRouter (supports 5 models: GPT-4o, Mistral 7B, Grok 4.1, Gemini 2.0, DeepSeek V3.2)
+- **Auth**: username + password (bcryptjs), Zod validation, HMAC-signed httpOnly cookie
+- **AI**: VT Custom (StagePilot) for predator chat; OpenAI Responses API for feedback
 - **Deployment**: Docker + Docker Compose
 
 ## Getting Started
@@ -51,19 +52,22 @@ RYLAI is an educational web application that simulates realistic chat conversati
 
 3. **Set up environment variables**
 
-   Create a `.env.local` file:
+   Create a `.env.local` file (see `.env.example` for all options):
    ```env
    # Optional: SQLite database location (defaults to ./data/rylai.db)
    DATABASE_URL=./data/rylai.db
 
-   # OpenRouter API key (recommended - supports multiple AI models)
-   OPENROUTER_API_KEY=sk-or-v1-your-key-here
+   # Signs the session cookie (required in production)
+   SESSION_SECRET=change-me-to-a-long-random-secret
 
-   # Optional: OpenAI API key (for direct OpenAI access)
+   # Passcode that makes a sign-up an educator (admin) account
+   ADMIN_PASSCODE=rylai2025
+
+   # Required for feedback generation (OpenAI Responses API)
    OPENAI_API_KEY=sk-your-key-here
 
-   # Optional: Use local Mistral-7b instead of cloud APIs
-   NEXT_PUBLIC_USE_LOCAL_API=false
+   # Optional: feedback model (defaults to gpt-5.5)
+   FEEDBACK_MODEL=gpt-5.5
    ```
 
 4. **Run database migrations**
@@ -80,21 +84,19 @@ RYLAI is an educational web application that simulates realistic chat conversati
 
    Navigate to [http://localhost:3000](http://localhost:3000)
 
-### Development with Local API (Mistral-7b)
+## User Types & Authentication
 
-```bash
-npm run dev:local
-```
+Authentication is username + password (no email is collected). There are two account
+types, distinguished at sign-up:
 
-## User Types & Passwords
+| User Type | How to register | Purpose |
+|-----------|-----------------|---------|
+| **Educator / Admin** | Sign up **with** the educator passcode (`ADMIN_PASSCODE`) | Create and manage scenarios |
+| **Learner** | Sign up **without** a passcode | Practice with an educator's scenarios |
 
-The application supports three user types:
-
-| User Type | Password | Purpose |
-|-----------|----------|---------|
-| **Educator/Admin** | `rylai2025` | Create and manage scenarios |
-| **Learner** | `user2025` | Practice with educator scenarios |
-| **Parent** | `parent2025` | View child's progress (read-only) |
+Passwords are bcrypt-hashed (minimum 8 characters); sessions use an HMAC-signed httpOnly
+cookie. Learners pick which educator's scenarios to practice on the "Select a Teacher"
+page (educators are listed by username).
 
 ## Docker Deployment
 
@@ -104,9 +106,10 @@ The application supports three user types:
 
    Create a `.env` file:
    ```env
-   OPENROUTER_API_KEY=sk-or-v1-your-key-here
+   SESSION_SECRET=change-me-to-a-long-random-secret
+   ADMIN_PASSCODE=rylai2025
    OPENAI_API_KEY=sk-your-key-here
-   NEXT_PUBLIC_USE_LOCAL_API=false
+   FEEDBACK_MODEL=gpt-5.5
    ```
 
 2. **Start the application**
@@ -179,9 +182,9 @@ Opens a web interface at `https://local.drizzle.studio` to view and edit databas
 
 The application uses 5 main tables:
 
-1. **users** - User accounts (admin/user/parent)
+1. **users** - User accounts (username/password; admin or user)
 2. **scenarios** - Educator-created chat scenarios
-3. **user_messages** - Learner chat history
+3. **user_messages** - Learner chat history (with VT-predicted stage)
 4. **user_feedbacks** - Generated educational feedback
 5. **scenario_progress** - Visit tracking and progress
 
@@ -216,7 +219,6 @@ Rylai/
 ```bash
 # Development
 npm run dev              # Start dev server with Turbopack
-npm run dev:local        # Start with local Mistral-7b API
 
 # Production
 npm run build            # Build for production
@@ -238,11 +240,17 @@ npm run lint             # Run ESLint
 - `POST /api/chat` - Generate AI predator responses
 - `POST /api/feedback` - Generate educational feedback
 
+### Auth Endpoints
+
+- `POST /api/auth/signup` - Create an account (username + password; admin via passcode)
+- `POST /api/auth/login` - Log in and set the session cookie
+- `POST /api/auth/logout` - Clear the session cookie
+- `GET /api/auth/me` - Get the current session user
+
 ### Internal Endpoints
 
-- `POST /api/check-user` - Verify user existence
-- `POST /api/get-users-with-progress` - List users with progress
-- `POST /api/get-admin-info` - Get educator information
+- `POST /api/get-users-with-progress` - List educators with learner progress
+- `POST /api/get-admin-info` - Get / update educator information
 - `POST /api/get-admin-scenarios` - Get educator's scenarios
 - `POST /api/delete-user` - Delete user account
 
@@ -260,46 +268,26 @@ The application simulates 7 stages of online grooming:
 
 ## AI Models
 
-RYLAI supports multiple AI models through OpenRouter:
+There is no model picker — the two AI roles are fixed:
 
-### Supported Models
+- **Predator chat**: VT Custom (StagePilot), a session-based endpoint
+  (`https://rylai.cs.vt.edu/llm`) that also predicts the grooming stage automatically.
+  No API key required. The UI can override the stage for the next turn.
+- **Feedback**: OpenAI **Responses API** with a single model (`FEEDBACK_MODEL`,
+  default `gpt-5.5`). Requires `OPENAI_API_KEY`.
 
-1. **GPT-4o** (OpenAI) - Latest GPT-4 Omni model (default)
-   - Context: 128K tokens
-
-2. **Mistral 7B Instruct** (Mistral AI)
-   - Context: 32K tokens
-
-3. **Grok 4.1 Fast** (xAI)
-   - Context: 131K tokens
-
-4. **Gemini 2.0 Flash** (Google)
-   - Context: 1M tokens
-
-5. **DeepSeek V3.2** (DeepSeek)
-   - Context: 65K tokens
-
-### Selecting Models
-
-Users can select their preferred AI model from the dropdown menu in the chat interface. The selected model is used for both predator chat responses and educational feedback generation.
-
-### Getting OpenRouter API Key
-
-1. Sign up at [OpenRouter](https://openrouter.ai/)
-2. Add credits to your account
-3. Generate an API key from your dashboard
-4. Add the key to your `.env.local` file as `OPENROUTER_API_KEY`
+To change the feedback model, set `FEEDBACK_MODEL` in your environment to any model
+available to your OpenAI key.
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `DATABASE_URL` | No | `./data/rylai.db` | SQLite database file path |
-| `OPENROUTER_API_KEY` | Recommended | - | OpenRouter API key (supports 5 models) |
-| `OPENAI_API_KEY` | No | - | OpenAI API key (for direct OpenAI access) |
-| `NEXT_PUBLIC_USE_LOCAL_API` | No | `false` | Use local Mistral-7b instead of cloud APIs |
-
-**Note**: You need `OPENROUTER_API_KEY` configured. OpenRouter is required as it provides access to all 5 supported AI models.
+| `SESSION_SECRET` | Yes (prod) | dev fallback | Secret used to sign the session cookie |
+| `ADMIN_PASSCODE` | Yes | - | Passcode to register an educator (admin) account |
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key, used for feedback generation |
+| `FEEDBACK_MODEL` | No | `gpt-5.5` | Feedback model (must be available to your key) |
 
 ## Troubleshooting
 
@@ -336,7 +324,8 @@ docker-compose up -d --build
 
 ### Security Checklist
 
-- [ ] Change default passwords in production
+- [ ] Set a strong, unique `SESSION_SECRET` (e.g. `openssl rand -hex 32`)
+- [ ] Set a non-default `ADMIN_PASSCODE`
 - [ ] Set up HTTPS with reverse proxy (nginx/caddy)
 - [ ] Configure firewall rules
 - [ ] Set up regular database backups

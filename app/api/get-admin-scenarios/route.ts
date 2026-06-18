@@ -15,17 +15,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const scenarioData = await db.query.scenarios.findMany({
+    // presetMessages is a json-mode column — drizzle returns it as a parsed array.
+    const scenarios = await db.query.scenarios.findMany({
       where: eq(scenariosTable.userId, userId)
     });
-
-    // Parse presetMessages for each scenario
-    const scenarios = scenarioData.map(s => ({
-      ...s,
-      presetMessages: typeof s.presetMessages === 'string'
-        ? JSON.parse(s.presetMessages)
-        : s.presetMessages
-    }));
 
     return NextResponse.json({ scenarios });
   } catch (error) {

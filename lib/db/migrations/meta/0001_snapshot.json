@@ -1,9 +1,111 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0ddbce0c-12ed-44b7-b87e-fb411d34802b",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "c656a970-0ce3-4945-be86-d9c12000a486",
+  "prevId": "0ddbce0c-12ed-44b7-b87e-fb411d34802b",
   "tables": {
+    "preview_events": {
+      "name": "preview_events",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "scenario_id": {
+          "name": "scenario_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "draft_text": {
+          "name": "draft_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "feedback_text": {
+          "name": "feedback_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "classification": {
+          "name": "classification",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "stage": {
+          "name": "stage",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "preview_events_user_scenario_idx": {
+          "name": "preview_events_user_scenario_idx",
+          "columns": [
+            "user_id",
+            "scenario_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "preview_events_user_id_users_id_fk": {
+          "name": "preview_events_user_id_users_id_fk",
+          "tableFrom": "preview_events",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "preview_events_scenario_id_scenarios_id_fk": {
+          "name": "preview_events_scenario_id_scenarios_id_fk",
+          "tableFrom": "preview_events",
+          "tableTo": "scenarios",
+          "columnsFrom": [
+            "scenario_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
     "scenario_progress": {
       "name": "scenario_progress",
       "columns": {

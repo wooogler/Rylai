@@ -1,12 +1,57 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type ResponseLabel = 'protective' | 'neutral' | 'risky';
+
+// Display styling for a response classification (one source of truth for colors).
+export const CLASSIFICATION_META: Record<ResponseLabel, {
+  label: string;
+  text: string;   // small label text color
+  border: string; // bubble border color
+  badge: string;  // badge background + text (feedback viewer)
+}> = {
+  protective: { label: 'Protective', text: 'text-green-600', border: 'border-green-400', badge: 'bg-green-50 text-green-700' },
+  neutral: { label: 'Neutral', text: 'text-amber-600', border: 'border-amber-300', badge: 'bg-amber-50 text-amber-700' },
+  risky: { label: 'Risky', text: 'text-red-600', border: 'border-red-400', badge: 'bg-red-50 text-red-700' },
+};
+
 export interface Message {
   id: string;
   text: string;
   sender: "user" | "other";
   timestamp: Date;
   feedbackGenerated?: boolean;
+  stage?: number | null;
+  classification?: ResponseLabel | null;
+  tacticRecognized?: boolean | null;
+  protectiveStrategy?: boolean | null;
+  rationale?: string | null;
+}
+
+// Resilience score = proportion of protective vs vulnerable (risky) participant
+// responses (Evaluation Plan §5.2). Neutral replies are excluded from the ratio.
+export function computeResilience(messages: Message[]): {
+  protective: number;
+  neutral: number;
+  risky: number;
+  classified: number;
+  score: number | null;
+} {
+  let protective = 0, neutral = 0, risky = 0;
+  for (const m of messages) {
+    if (m.sender !== 'user' || !m.classification) continue;
+    if (m.classification === 'protective') protective++;
+    else if (m.classification === 'risky') risky++;
+    else neutral++;
+  }
+  const denom = protective + risky;
+  return {
+    protective,
+    neutral,
+    risky,
+    classified: protective + neutral + risky,
+    score: denom > 0 ? protective / denom : null,
+  };
 }
 
 export interface GroomingStage {
@@ -61,16 +106,34 @@ export const GROOMING_STAGES: GroomingStage[] = [
   }
 ];
 
+// Educator-selectable age brackets. The representative integer is sent to the VT
+// session; the VT server buckets it into its own guardrail ranges.
+export interface AgeBracket {
+  value: number;
+  label: string;
+}
+
+export const AGE_BRACKETS: AgeBracket[] = [
+  { value: 13, label: "13–14" },
+  { value: 15, label: "15–16" },
+  { value: 17, label: "17–19" },
+];
+
+export function ageBracketLabel(age: number | null): string {
+  if (age === null) return "Not set";
+  return AGE_BRACKETS.find(b => b.value === age)?.label ?? `${age}`;
+}
+
 export interface Scenario {
   id: number;
   slug: string;
   name: string;
   predatorName: string;
   handle: string;
-  systemPrompt: string;
   presetMessages: Message[];
   description: string;
   stage: number;
+  autoStage: boolean;
 }
 
 export interface ScenarioProgress {
@@ -80,101 +143,59 @@ export interface ScenarioProgress {
   visitCount: number;
 }
 
+export interface AuthUser {
+  id: string;
+  username: string;
+  userType: 'admin' | 'user';
+  age?: number | null;
+}
+
+interface VtSessionState {
+  vtSessionId: string | null;
+  autoStage: number | null;
+}
+
 interface ScenarioStore {
   currentUser: string | null;
   userId: string | null;
-  userType: 'admin' | 'user' | 'parent' | null;
+  userType: 'admin' | 'user' | null;
   scenarios: Scenario[];
-  commonSystemPrompt: string;
-  feedbackPersona: string;
-  feedbackInstruction: string;
+  age: number | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  isParent: boolean;
+  authHydrated: boolean;
   adminUserId: string | null;
-  childUserId: string | null;
-  selectedModelId: string;
-  selectedFeedbackModelId: string;
-  setSelectedModelId: (modelId: string) => void;
-  setSelectedFeedbackModelId: (modelId: string) => void;
-  setCurrentUser: (username: string, userType: 'admin' | 'user' | 'parent') => Promise<void>;
+  adminName: string | null;
+  vtSessions: Record<number, VtSessionState>;
+  setAuthUser: (user: AuthUser) => void;
+  hydrateAuth: () => Promise<boolean>;
+  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null) => void;
   loadUserScenarios: () => Promise<void>;
-  setCommonSystemPrompt: (prompt: string) => Promise<void>;
-  setFeedbackPrompts: (persona: string, instruction: string) => Promise<void>;
+  setAge: (age: number | null) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
   getScenarioBySlug: (slug: string) => Scenario | undefined;
   saveUserMessage: (scenarioId: number, message: Message) => Promise<void>;
   saveUserFeedback: (scenarioId: number, messageId: string, feedbackText: string) => Promise<void>;
+  saveResponseClassification: (
+    scenarioId: number,
+    messageId: string,
+    payload: { classification: ResponseLabel; tacticRecognized: boolean; protectiveStrategy: boolean; rationale: string }
+  ) => Promise<void>;
+  savePreviewEvent: (
+    scenarioId: number,
+    payload: { draftText: string; feedbackText: string; classification?: ResponseLabel; stage?: number }
+  ) => Promise<void>;
   loadUserMessages: (scenarioId: number) => Promise<Message[]>;
   loadUserFeedbacks: (scenarioId: number) => Promise<Map<string, string>>;
   recordScenarioVisit: (scenarioId: number) => Promise<void>;
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
   resetScenarioProgress: (scenarioId: number) => Promise<void>;
-  logout: () => void;
+  setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null) => void;
+  logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
-}
-
-const BASE_SYSTEM_MESSAGE = `Keep responses short (1-2 sentences), casual, and text-message style.
-Use the conversation history to stay in character.
-NEVER use emojis in your responses.`;
-
-const DEFAULT_FEEDBACK_PERSONA = `You are an educational assistant helping learners recognize online grooming tactics and practice safer online communication.`;
-
-const DEFAULT_FEEDBACK_INSTRUCTION = `Provide brief, teen-friendly feedback in the following format using Markdown:
-
-## What is the other person trying to do?
-[1-2 sentences about the grooming tactic being used]
-
-## How did you do?
-[1-2 sentences of encouragement and constructive feedback]
-
-## Tips to Stay Safe
-[2-3 bullet points with specific, actionable safety tips]
-
-Keep it short, friendly, and helpful. Avoid being preachy.`;
-
-const STAGE_DESCRIPTIONS: Record<number, string> = {
-  0: "You are in Free Interaction mode. There are no specific stage constraints. You can use any grooming tactics naturally as the conversation develops. Be adaptive and responsive to how the target reacts.",
-  1: "You are currently in Stage 1 (Friendship Forming). The predator gets to know the target through four key tactics: (1) Asking profile information like name, age, location, (2) Suggesting other ways to contact like Discord, Snapchat, or WhatsApp, (3) Asking for pictures to verify identity, and (4) Giving compliments to build rapport.",
-  2: "You are currently in Stage 2 (Relationship Forming). This extends Stage 1 by discussing hobbies, school life, activities, and friends to strengthen the emotional bond.",
-  3: "You are currently in Stage 3 (Risk Assessment). The predator assesses exposure risk by asking whether anyone else (e.g., parents or friends) knows about this chat.",
-  4: "You are currently in Stage 4 (Exclusivity). The predator builds emotional trust by showing affection, giving compliments, or expressing feelings to make the target feel special and important.",
-  5: "You are currently in Stage 5 (Sexual). The predator uses the established relationship to introduce sexual topics or request explicit content.",
-  6: "You are currently in Stage 6 (Conclusion). The predator makes plans to meet in person or discusses future contact outside the current platform."
-};
-
-const STAGE_GOALS: Record<number, string> = {
-  0: "Interact freely and naturally. Respond to the conversation flow without specific stage restrictions. Use appropriate grooming tactics based on the context and target's responses.",
-  1: "Build rapport and familiarity. Your tactics: ask profile (name, age, location), suggest other contact methods (Discord, Snapchat), ask for pictures, and give compliments. Be friendly and relatable.",
-  2: "Strengthen the relationship. Your tactics: discuss hobbies, school life, activities, and friends. Show genuine interest and make the target feel understood and connected.",
-  3: "Assess the risk. Your tactics: subtly ask if parents or friends know about this conversation, if they're alone, or if it's safe to talk. Gauge how monitored the target is.",
-  4: "Make the target feel special. Your tactics: give compliments, express affection, share secrets, and ask them to keep the relationship exclusive. Build emotional dependency.",
-  5: "Introduce sexual content. Your tactics: gently bring up sexual topics, ask suggestive questions, or request explicit photos. Gauge their comfort level and push boundaries carefully.",
-  6: "Plan to meet. Your tactics: suggest meeting in person, ask about their schedule and location, ensure they keep it secret from guardians. Transition from online to offline contact."
-};
-
-export function getSystemPromptForStage(stage: number, scenarioPrompt: string, commonPrompt: string): string {
-  const stageInfo = STAGE_DESCRIPTIONS[stage] || STAGE_DESCRIPTIONS[1];
-  const stageGoal = STAGE_GOALS[stage] || STAGE_GOALS[1];
-
-  return `You are simulating an online predator in a controlled research simulation.
-
-${BASE_SYSTEM_MESSAGE}
-
-${commonPrompt}
-
-${scenarioPrompt}
-
-**Current Grooming Stage:**
-${stageInfo}
-
-**Your Goal:**
-${stageGoal}
-
-Remember: Keep messages natural, brief, and realistic. Match the conversation style of a real predator at this stage.`;
 }
 
 export const useScenarioStore = create<ScenarioStore>()(
@@ -185,87 +206,56 @@ export const useScenarioStore = create<ScenarioStore>()(
       userId: null,
       userType: null,
       scenarios: [],
-      commonSystemPrompt: BASE_SYSTEM_MESSAGE,
-      feedbackPersona: DEFAULT_FEEDBACK_PERSONA,
-      feedbackInstruction: DEFAULT_FEEDBACK_INSTRUCTION,
+      age: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
-      isParent: false,
+      authHydrated: false,
       adminUserId: null,
-      childUserId: null,
-      selectedModelId: 'vt-custom',
-      selectedFeedbackModelId: 'gpt-4o',
+      adminName: null,
+      vtSessions: {},
 
-      // Actions
-      setSelectedModelId: (modelId: string) => {
-        set({ selectedModelId: modelId });
+      // Populate auth state from a login/signup/me response.
+      setAuthUser: (user: AuthUser) => {
+        set({
+          currentUser: user.username,
+          userId: user.id,
+          userType: user.userType,
+          isAuthenticated: true,
+          isAdmin: user.userType === 'admin',
+          authHydrated: true,
+          ...(user.userType === 'admin' ? { age: user.age ?? null } : {}),
+        });
       },
 
-      setSelectedFeedbackModelId: (modelId: string) => {
-        set({ selectedFeedbackModelId: modelId });
-      },
-
-      setCurrentUser: async (username: string, userType: 'admin' | 'user' | 'parent') => {
-        set({ isLoading: true });
-
+      // Source of truth for auth: the httpOnly session cookie via /api/auth/me.
+      hydrateAuth: async () => {
         try {
-          const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ username, userType }),
+          const res = await fetch('/api/auth/me');
+          const data = await res.json();
+          if (data.user) {
+            get().setAuthUser(data.user);
+            return true;
+          }
+          set({
+            currentUser: null,
+            userId: null,
+            userType: null,
+            isAuthenticated: false,
+            isAdmin: false,
+            authHydrated: true,
           });
-
-          if (!response.ok) {
-            throw new Error('Login failed');
-          }
-
-          const data = await response.json();
-
-          if (userType === 'parent') {
-            set({
-              currentUser: username,
-              userId: data.childUserId,
-              userType: 'parent',
-              isAuthenticated: true,
-              isAdmin: false,
-              isParent: true,
-              childUserId: data.childUserId,
-              isLoading: false,
-            });
-          } else if (userType === 'admin') {
-            set({
-              currentUser: username,
-              userId: data.user.id,
-              userType: 'admin',
-              isAuthenticated: true,
-              isAdmin: true,
-              isParent: false,
-              commonSystemPrompt: data.user.commonSystemPrompt || BASE_SYSTEM_MESSAGE,
-              feedbackPersona: data.user.feedbackPersona || DEFAULT_FEEDBACK_PERSONA,
-              feedbackInstruction: data.user.feedbackInstruction || DEFAULT_FEEDBACK_INSTRUCTION,
-              isLoading: false,
-            });
-          } else {
-            set({
-              currentUser: username,
-              userId: data.user.id,
-              userType: 'user',
-              isAuthenticated: true,
-              isAdmin: false,
-              isParent: false,
-              adminUserId: data.adminUserId,
-              commonSystemPrompt: data.commonSystemPrompt || BASE_SYSTEM_MESSAGE,
-              feedbackPersona: data.feedbackPersona || DEFAULT_FEEDBACK_PERSONA,
-              feedbackInstruction: data.feedbackInstruction || DEFAULT_FEEDBACK_INSTRUCTION,
-              isLoading: false,
-            });
-          }
+          return false;
         } catch (error) {
-          console.error('Login error:', error);
-          set({ isLoading: false });
-          throw error;
+          console.error('Auth hydration error:', error);
+          set({ authHydrated: true });
+          return false;
         }
+      },
+
+      // Learner picks an educator: adopt that educator's global age setting + name.
+      setAdminContext: (adminUserId, age, adminName) => {
+        set({ adminUserId, age: age ?? null, adminName: adminName ?? null });
       },
 
       loadUserScenarios: async () => {
@@ -273,7 +263,7 @@ export const useScenarioStore = create<ScenarioStore>()(
         if (!userId) return;
 
         try {
-          const targetUserId = (userType === 'user' || userType === 'parent') ? adminUserId : userId;
+          const targetUserId = userType === 'user' ? adminUserId : userId;
 
           if (!targetUserId) {
             console.error('No target user ID for loading scenarios');
@@ -297,39 +287,20 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
-      setCommonSystemPrompt: async (prompt: string) => {
+      setAge: async (age: number | null) => {
         const { userId } = get();
         if (!userId) return;
 
-        set({ commonSystemPrompt: prompt });
+        set({ age });
 
-        // Update via API
         try {
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, commonSystemPrompt: prompt }),
+            body: JSON.stringify({ userId, age }),
           });
         } catch (error) {
-          console.error('Error updating common system prompt:', error);
-        }
-      },
-
-      setFeedbackPrompts: async (persona: string, instruction: string) => {
-        const { userId } = get();
-        if (!userId) return;
-
-        set({ feedbackPersona: persona, feedbackInstruction: instruction });
-
-        // Update via API
-        try {
-          await fetch('/api/get-admin-info', {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, feedbackPersona: persona, feedbackInstruction: instruction }),
-          });
-        } catch (error) {
-          console.error('Error updating feedback prompts:', error);
+          console.error('Error updating age:', error);
         }
       },
 
@@ -413,7 +384,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       saveUserMessage: async (scenarioId: number, message: Message) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+        if (!userId || userType !== 'user') return;
 
         try {
           await fetch('/api/messages', {
@@ -428,7 +399,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       saveUserFeedback: async (scenarioId: number, messageId: string, feedbackText: string) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+        if (!userId || userType !== 'user') return;
 
         try {
           await fetch('/api/feedbacks', {
@@ -441,9 +412,39 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      saveResponseClassification: async (scenarioId, messageId, payload) => {
+        const { userId, userType } = get();
+        if (!userId || userType !== 'user') return;
+
+        try {
+          await fetch('/api/messages', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, scenarioId, messageId, ...payload }),
+          });
+        } catch (error) {
+          console.error('Error saving classification:', error);
+        }
+      },
+
+      savePreviewEvent: async (scenarioId, payload) => {
+        const { userId, userType } = get();
+        if (!userId || userType !== 'user') return;
+
+        try {
+          await fetch('/api/preview-events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, scenarioId, ...payload }),
+          });
+        } catch (error) {
+          console.error('Error logging preview event:', error);
+        }
+      },
+
       loadUserMessages: async (scenarioId: number) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return [];
+        if (!userId || userType !== 'user') return [];
 
         try {
           const response = await fetch(`/api/messages?userId=${userId}&scenarioId=${scenarioId}`);
@@ -453,7 +454,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           }
 
           const messages = await response.json();
-          return messages.map((msg: { id: string; text: string; sender: string; timestamp: string | Date }) => ({
+          return messages.map((msg: Partial<Message> & { timestamp: string | Date }) => ({
             ...msg,
             timestamp: new Date(msg.timestamp),
           }));
@@ -465,7 +466,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       loadUserFeedbacks: async (scenarioId: number) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
+        if (!userId || userType !== 'user') return new Map();
 
         try {
           const response = await fetch(`/api/feedbacks?userId=${userId}&scenarioId=${scenarioId}`);
@@ -490,7 +491,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       recordScenarioVisit: async (scenarioId: number) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+        if (!userId || userType !== 'user') return;
 
         try {
           await fetch('/api/scenario-progress', {
@@ -505,7 +506,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       loadScenarioProgress: async () => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return new Map();
+        if (!userId || userType !== 'user') return new Map();
 
         try {
           const response = await fetch(`/api/scenario-progress?userId=${userId}`);
@@ -536,33 +537,51 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       resetScenarioProgress: async (scenarioId: number) => {
         const { userId, userType } = get();
-        if (!userId || (userType !== 'user' && userType !== 'parent')) return;
+        if (!userId || userType !== 'user') return;
 
         try {
           await fetch(`/api/scenario-progress?userId=${userId}&scenarioId=${scenarioId}`, {
             method: 'DELETE',
+          });
+          // Drop any cached VT session for this scenario.
+          set((state) => {
+            const next = { ...state.vtSessions };
+            delete next[scenarioId];
+            return { vtSessions: next };
           });
         } catch (error) {
           console.error('Error resetting scenario progress:', error);
         }
       },
 
-      logout: () => {
+      setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null) => {
+        set((state) => ({
+          vtSessions: { ...state.vtSessions, [scenarioId]: { vtSessionId, autoStage } },
+        }));
+      },
+
+      logout: async () => {
+        try {
+          await fetch('/api/auth/logout', { method: 'POST' });
+        } catch (error) {
+          console.error('Logout error:', error);
+        }
         set({
           currentUser: null,
           userId: null,
           userType: null,
           scenarios: [],
+          age: null,
           isAuthenticated: false,
           isAdmin: false,
-          isParent: false,
           adminUserId: null,
-          childUserId: null,
+          adminName: null,
+          vtSessions: {},
         });
       },
 
       deleteAccount: async () => {
-        const { userId, userType, currentUser } = get();
+        const { userId, userType } = get();
         if (!userId || userType !== 'admin') {
           throw new Error('Only admin accounts can be deleted');
         }
@@ -571,14 +590,14 @@ export const useScenarioStore = create<ScenarioStore>()(
           const response = await fetch('/api/delete-user', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, username: currentUser, userType: 'admin' }),
+            body: JSON.stringify({ userId }),
           });
 
           if (!response.ok) {
             throw new Error('Failed to delete account');
           }
 
-          get().logout();
+          await get().logout();
         } catch (error) {
           console.error('Error deleting account:', error);
           throw error;
@@ -587,18 +606,15 @@ export const useScenarioStore = create<ScenarioStore>()(
     }),
     {
       name: 'rylai-store',
-      version: 2,
+      version: 4,
+      // Auth (userId/userType/isAuthenticated) is intentionally NOT persisted —
+      // it is hydrated from the httpOnly session cookie via hydrateAuth().
       partialize: (state) => ({
-        userId: state.userId,
-        userType: state.userType,
         adminUserId: state.adminUserId,
-        isAuthenticated: state.isAuthenticated,
+        adminName: state.adminName,
         scenarios: state.scenarios,
-        commonSystemPrompt: state.commonSystemPrompt,
-        feedbackPersona: state.feedbackPersona,
-        feedbackInstruction: state.feedbackInstruction,
-        selectedModelId: state.selectedModelId,
-        selectedFeedbackModelId: state.selectedFeedbackModelId,
+        age: state.age,
+        vtSessions: state.vtSessions,
       }),
     }
   )

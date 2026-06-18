@@ -1,35 +1,31 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
 import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings, Eye } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, GROOMING_STAGES } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, GROOMING_STAGES, computeResilience } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
+import FeedbackComment from "../FeedbackComment";
 import Button from "@/components/Button";
-import ReactMarkdown from "react-markdown";
-import { AI_MODELS, getModelById } from "@/lib/ai-models";
 
-interface FeedbackItem {
-  feedback: string;
-  messageIndex: number;
-  messageCount: number;
-  lastUserMessage: string;
-  timestamp: Date;
+interface PreviewFeedback {
+  text: string;
+  classification?: ResponseLabel;
 }
 
 function getStageColorClass(stage: number): string {
   switch (stage) {
-    case 0: return 'bg-gray-100 text-gray-600 focus:ring-gray-300';
-    case 1: return 'bg-blue-100 text-blue-700 focus:ring-blue-300';
-    case 2: return 'bg-cyan-100 text-cyan-700 focus:ring-cyan-300';
-    case 3: return 'bg-yellow-100 text-yellow-700 focus:ring-yellow-300';
-    case 4: return 'bg-orange-100 text-orange-700 focus:ring-orange-300';
-    case 5: return 'bg-red-100 text-red-700 focus:ring-red-300';
-    case 6: return 'bg-rose-200 text-rose-800 focus:ring-rose-300';
-    default: return 'bg-gray-100 text-gray-400 focus:ring-gray-300';
+    case 0: return 'bg-gray-100 text-gray-600';
+    case 1: return 'bg-blue-100 text-blue-700';
+    case 2: return 'bg-cyan-100 text-cyan-700';
+    case 3: return 'bg-yellow-100 text-yellow-700';
+    case 4: return 'bg-orange-100 text-orange-700';
+    case 5: return 'bg-red-100 text-red-700';
+    case 6: return 'bg-rose-200 text-rose-800';
+    default: return 'bg-gray-100 text-gray-400';
   }
 }
 
@@ -39,54 +35,104 @@ export default function ChatPage() {
   const scenarioSlug = params.scenario as string;
   const {
     scenarios,
-    commonSystemPrompt,
-    feedbackPersona,
-    feedbackInstruction,
+    age,
     isAdmin,
-    isParent,
     isAuthenticated,
+    authHydrated,
     userType,
-    selectedModelId,
-    selectedFeedbackModelId,
-    setSelectedModelId,
-    setSelectedFeedbackModelId,
+    userId,
+    adminUserId,
+    adminName,
+    currentUser,
     saveUserMessage,
     saveUserFeedback,
+    saveResponseClassification,
+    savePreviewEvent,
     loadUserMessages,
     loadUserFeedbacks,
     recordScenarioVisit,
     loadScenarioProgress,
     resetScenarioProgress,
+    setVtSession,
     logout
   } = useScenarioStore();
 
-  // Redirect to home if not authenticated
+  // Redirect home only once auth state is known (cookie hydration is async).
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (authHydrated && !isAuthenticated) {
       router.push('/');
     }
-  }, [isAuthenticated, router]);
+  }, [authHydrated, isAuthenticated, router]);
 
   const initialScenarioIndex = scenarios.findIndex(s => s.slug === scenarioSlug);
   const [currentScenario, setCurrentScenario] = useState(initialScenarioIndex >= 0 ? initialScenarioIndex : 0);
   const [messages, setMessages] = useState<Message[]>([]);
   const [responseText, setResponseText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [currentFeedback, setCurrentFeedback] = useState<FeedbackItem | null>(null);
-  const [messageFeedbackMap, setMessageFeedbackMap] = useState<Map<number, FeedbackItem>>(new Map());
-  const [selectedMessageIndex, setSelectedMessageIndex] = useState<number | null>(null);
-  const [hoveredMessageIndex, setHoveredMessageIndex] = useState<number | null>(null);
-  const [isGeneratingFeedback, setIsGeneratingFeedback] = useState(false);
+  // Feedback text per participant message id (comment cards anchor to these).
+  const [feedbackByMessageId, setFeedbackByMessageId] = useState<Map<string, string>>(new Map());
+  // Which comment card is expanded ('preview' = the preview card next to the input).
+  const [expandedCommentId, setExpandedCommentId] = useState<string | null>(null);
+  // Message id whose feedback is currently being generated (shows a loading card).
+  const [pendingFeedbackId, setPendingFeedbackId] = useState<string | null>(null);
   const [scenarioProgressMap, setScenarioProgressMap] = useState<Map<number, ScenarioProgress>>(new Map());
-  const [hoveredButton, setHoveredButton] = useState<'preview' | 'send' | null>(null);
-  const [previewFeedback, setPreviewFeedback] = useState<FeedbackItem | null>(null);
+  const [previewFeedback, setPreviewFeedback] = useState<PreviewFeedback | null>(null);
   const [previewText, setPreviewText] = useState<string>('');
+  const [previewPending, setPreviewPending] = useState(false);
   const [vtSessionId, setVtSessionId] = useState<string | null>(null);
-  const [autoStage, setAutoStage] = useState<number | null>(null);
-  const [stageOverride, setStageOverride] = useState<number | null>(null);
+  const [predictedStage, setPredictedStage] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const feedbackContainerRef = useRef<HTMLDivElement>(null);
+
+  // --- Comment gutter positioning (Google Docs style) ---------------------------
+  // Comments live OUTSIDE the chat card and are absolutely positioned to line up
+  // with their anchor messages, without affecting the chat's own message spacing.
+  const messageRowRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const commentRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const gutterRef = useRef<HTMLDivElement>(null);
+  const [commentTops, setCommentTops] = useState<Map<string, number>>(new Map());
+
+  const scenario = scenarios[currentScenario];
+  const isBusy = isTyping || pendingFeedbackId !== null || previewPending;
+
+  // The feedback "author" shown on comment cards: the educator whose scenarios
+  // are being practiced (or the educator themselves when testing).
+  const teacherName = (isAdmin ? currentUser : adminName) || 'Teacher';
+  const teacherSeed = (isAdmin ? userId : adminUserId) || 'rylai-teacher';
+
+  // Recompute comment card positions: align each card with its anchor message
+  // (viewport-relative), then push overlapping cards downward.
+  const recomputeCommentPositions = useCallback(() => {
+    const gutter = gutterRef.current;
+    if (!gutter) return;
+    const gutterTop = gutter.getBoundingClientRect().top;
+    const GAP = 8;
+    let prevBottom = -Infinity;
+    const next = new Map<string, number>();
+    for (const m of messages) {
+      if (m.sender !== 'user') continue;
+      if (!feedbackByMessageId.has(m.id) && pendingFeedbackId !== m.id) continue;
+      const anchor = messageRowRefs.current.get(m.id);
+      if (!anchor) continue;
+      const desired = anchor.getBoundingClientRect().top - gutterTop;
+      const height = commentRefs.current.get(m.id)?.offsetHeight ?? 64;
+      const top = Math.max(desired, prevBottom + GAP);
+      next.set(m.id, top);
+      prevBottom = top + height;
+    }
+    setCommentTops(next);
+  }, [messages, feedbackByMessageId, pendingFeedbackId]);
+
+  useLayoutEffect(() => {
+    recomputeCommentPositions();
+  }, [recomputeCommentPositions, expandedCommentId]);
+
+  useEffect(() => {
+    const onResize = () => recomputeCommentPositions();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [recomputeCommentPositions]);
+  // -------------------------------------------------------------------------------
 
   const scrollToBottom = () => {
     if (messagesContainerRef.current) {
@@ -98,10 +144,20 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, isTyping]);
 
+  // Restore the persisted VT session when switching scenarios. The displayed stage
+  // starts at the scenario's starting stage, then tracks predictions (auto mode).
   useEffect(() => {
-    // Load messages for user/parent type, or use preset for admin
+    const sc = scenarios[currentScenario];
+    if (!sc) return;
+    const saved = useScenarioStore.getState().vtSessions[sc.id];
+    setVtSessionId(saved?.vtSessionId ?? null);
+    setPredictedStage(saved?.autoStage ?? sc.stage);
+  }, [currentScenario, scenarios]);
+
+  useEffect(() => {
+    // Load messages for learners, or use preset messages for educators (admins).
     const loadMessages = async () => {
-      if ((userType === 'user' || userType === 'parent') && scenarios[currentScenario]) {
+      if (userType === 'user' && scenarios[currentScenario]) {
         const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
         const savedFeedbacks = await loadUserFeedbacks(scenarios[currentScenario].id);
 
@@ -113,28 +169,18 @@ export default function ChatPage() {
         setScenarioProgressMap(progressMap);
 
         if (savedMessages.length > 0) {
-          // Mark messages that have feedback
-          const messagesWithFeedback = savedMessages.map(msg => ({
-            ...msg,
-            feedbackGenerated: savedFeedbacks.has(msg.id)
-          }));
-          setMessages(messagesWithFeedback);
+          setMessages(savedMessages);
+          setFeedbackByMessageId(savedFeedbacks);
 
-          // Load feedback map
-          const feedbackMap = new Map<number, FeedbackItem>();
-          messagesWithFeedback.forEach((msg, index) => {
-            if (savedFeedbacks.has(msg.id)) {
-              feedbackMap.set(index, {
-                feedback: savedFeedbacks.get(msg.id)!,
-                messageIndex: index,
-                messageCount: index + 1,
-                lastUserMessage: msg.sender === 'user' ? msg.text : 'Conversation',
-                timestamp: new Date()
-              });
-            }
-          });
-          setMessageFeedbackMap(feedbackMap);
+          // Restore the stage from the most recent predator message.
+          const lastPredatorStage = [...savedMessages]
+            .reverse()
+            .find(m => m.sender === 'other' && typeof m.stage === 'number')?.stage;
+          if (typeof lastPredatorStage === 'number') {
+            setPredictedStage(lastPredatorStage);
+          }
         } else {
+          setFeedbackByMessageId(new Map());
           // First time: save preset messages with unique IDs using timestamp
           const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
             ...msg,
@@ -151,211 +197,197 @@ export default function ChatPage() {
             }
           }
         }
-      } else {
+      } else if (scenarios[currentScenario]) {
         setMessages(scenarios[currentScenario].presetMessages);
+        setFeedbackByMessageId(new Map());
       }
     };
 
     loadMessages();
   }, [scenarios, currentScenario, userType, loadUserMessages, loadUserFeedbacks, saveUserMessage, recordScenarioVisit, loadScenarioProgress]);
 
-  const generateFeedback = async (messageIndex: number) => {
-    setIsGeneratingFeedback(true);
-    setSelectedMessageIndex(messageIndex);
+  // Generate feedback for the participant reply at `userReplyIndex`, evaluating it with
+  // the full `conversation` — which includes the predator's reply that followed it, so
+  // the feedback is grounded in how the predator actually reacted. `stage` is the
+  // grooming stage the reply was made in.
+  const generateFeedback = async (conversation: Message[], userReplyIndex: number, stage: number) => {
+    const target = conversation[userReplyIndex];
+    if (!target) return;
+    setPendingFeedbackId(target.id);
 
     try {
-      // Get conversation up to this message
-      const conversationUpToMessage = messages.slice(0, messageIndex + 1);
-
       const response = await fetch('/api/feedback', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversationHistory: conversationUpToMessage,
-          feedbackPersona,
-          feedbackInstruction,
-          modelId: selectedFeedbackModelId,
+          conversationHistory: conversation,
+          stage,
+          age,
         }),
       });
 
       const data = await response.json();
+      if (!data.feedback) throw new Error('No feedback in response');
 
-      if (data.feedback) {
-        // Get last user message in the slice
-        const userMessages = conversationUpToMessage.filter(m => m.sender === 'user');
-        const lastUserMessage = userMessages.length > 0
-          ? userMessages[userMessages.length - 1].text
-          : 'No user messages';
+      // Anchor the feedback to the participant's reply (comment card in the gutter).
+      setFeedbackByMessageId(prev => new Map(prev).set(target.id, data.feedback));
+      setExpandedCommentId(target.id);
 
-        // Create feedback item with metadata
-        const feedbackItem: FeedbackItem = {
-          feedback: data.feedback,
-          messageIndex,
-          messageCount: conversationUpToMessage.length,
-          lastUserMessage: lastUserMessage.length > 50
-            ? lastUserMessage.substring(0, 50) + '...'
-            : lastUserMessage,
-          timestamp: new Date(),
-        };
-
-        // Save to map
-        setMessageFeedbackMap(prev => new Map(prev).set(messageIndex, feedbackItem));
-
-        // Mark message as having feedback
-        setMessages(prev => prev.map((msg, idx) =>
-          idx === messageIndex ? { ...msg, feedbackGenerated: true } : msg
+      // Classification applies to a participant (user) reply only.
+      const hasClassification = target.sender === 'user' && !!data.classification;
+      if (hasClassification) {
+        setMessages(prev => prev.map(msg =>
+          msg.id === target.id
+            ? {
+                ...msg,
+                classification: data.classification,
+                tacticRecognized: data.tacticRecognized,
+                protectiveStrategy: data.protectiveStrategy,
+                rationale: data.rationale,
+              }
+            : msg
         ));
-
-        // Set as current feedback
-        setCurrentFeedback(feedbackItem);
-
-        // Save feedback for user type
-        if (userType === 'user') {
-          try {
-            await saveUserFeedback(scenarios[currentScenario].id, messages[messageIndex].id, data.feedback);
-          } catch (error) {
-            console.error('Failed to save feedback:', error);
-          }
-        }
-
-        // Scroll feedback container to top
-        setTimeout(() => {
-          if (feedbackContainerRef.current) {
-            feedbackContainerRef.current.scrollTop = 0;
-          }
-        }, 100);
-      } else {
-        throw new Error('No feedback in response');
       }
 
-      setIsGeneratingFeedback(false);
+      // Save feedback + classification for learners
+      if (userType === 'user') {
+        try {
+          await saveUserFeedback(scenarios[currentScenario].id, target.id, data.feedback);
+          if (hasClassification) {
+            await saveResponseClassification(scenarios[currentScenario].id, target.id, {
+              classification: data.classification,
+              tacticRecognized: !!data.tacticRecognized,
+              protectiveStrategy: !!data.protectiveStrategy,
+              rationale: data.rationale ?? '',
+            });
+          }
+        } catch (error) {
+          console.error('Failed to save feedback/classification:', error);
+        }
+      }
     } catch (error) {
       console.error('Feedback generation error:', error);
-      const errorItem: FeedbackItem = {
-        feedback: 'Failed to generate feedback. Please try again.',
-        messageIndex,
-        messageCount: messageIndex + 1,
-        lastUserMessage: 'Error',
-        timestamp: new Date(),
-      };
-      setCurrentFeedback(errorItem);
-      setIsGeneratingFeedback(false);
+      setFeedbackByMessageId(prev => new Map(prev).set(target.id, 'Failed to generate feedback. Please try again.'));
+      setExpandedCommentId(target.id);
+    } finally {
+      setPendingFeedbackId(null);
     }
   };
 
   const handleSendResponse = async () => {
-    if (responseText.trim() && !isTyping && !isGeneratingFeedback) {
-      const textToSend = responseText;
-      setResponseText("");
+    if (!responseText.trim() || isBusy) return;
 
-      // Add message to chat immediately
-      const newMessage: Message = {
-        id: Date.now().toString(),
-        text: textToSend,
-        sender: "user",
-        timestamp: new Date(),
-      };
-      setMessages(prev => [...prev, newMessage]);
+    const textToSend = responseText;
+    setResponseText("");
 
-      // Save user message if user type
-      if (userType === 'user') {
-        try {
-          await saveUserMessage(scenarios[currentScenario].id, newMessage);
-        } catch (error) {
-          console.error('Failed to save user message:', error);
-        }
+    // Submitting collapses any open comment right away.
+    setExpandedCommentId(null);
+
+    // Add message to chat immediately
+    const newMessage: Message = {
+      id: Date.now().toString(),
+      text: textToSend,
+      sender: "user",
+      timestamp: new Date(),
+    };
+    const conversationWithUser = [...messages, newMessage];
+    setMessages(conversationWithUser);
+
+    // The preview (if any) is consumed by sending.
+    setPreviewFeedback(null);
+    setPreviewText('');
+
+    // Show the loading comment card anchored to this reply right away.
+    setPendingFeedbackId(newMessage.id);
+
+    // Save user message for learners
+    if (userType === 'user') {
+      try {
+        await saveUserMessage(scenarios[currentScenario].id, newMessage);
+      } catch (error) {
+        console.error('Failed to save user message:', error);
       }
+    }
 
-      // Show typing indicator and call OpenAI API
-      setIsTyping(true);
+    // The stage the reply was made in (before the predator's next move).
+    const userReplyIndex = conversationWithUser.length - 1;
+    const replyStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
 
-      // Call AI API
-      fetch('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          conversationHistory: messages,
-          systemMessage: scenario.systemPrompt,
-          commonSystemPrompt: commonSystemPrompt,
-          userMessage: textToSend,
-          modelId: selectedModelId,
-          vtSessionId: selectedModelId === 'vt-custom' ? vtSessionId : undefined,
-          stageOverride: selectedModelId === 'vt-custom' ? stageOverride : undefined,
-        }),
+    // Show typing indicator and call the VT Custom chat API
+    setIsTyping(true);
+
+    const scenarioId = scenario.id;
+
+    fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        conversationHistory: messages,
+        userMessage: textToSend,
+        vtSessionId,
+        age,
+        autoStage: scenario.autoStage,
+        stage: scenario.stage,
+      }),
+    })
+      .then(res => res.json())
+      .then(async data => {
+        // Persist VT session + stage.
+        const newSessionId = data.vtSessionId ?? vtSessionId;
+        const newStage = data.stage;
+        if (data.vtSessionId) setVtSessionId(data.vtSessionId);
+        if (newStage !== undefined) setPredictedStage(newStage);
+        setVtSession(scenarioId, newSessionId ?? null, newStage ?? null);
+
+        const autoReply: Message = {
+          id: (Date.now() + 1).toString(),
+          text: data.reply || "Sorry, I couldn't respond right now.",
+          sender: "other",
+          stage: typeof newStage === 'number' ? newStage : null,
+          timestamp: new Date(),
+        };
+        const conversationWithReply = [...conversationWithUser, autoReply];
+        setMessages(conversationWithReply);
+
+        // Save AI reply for learners
+        if (userType === 'user') {
+          try {
+            await saveUserMessage(scenarioId, autoReply);
+          } catch (error) {
+            console.error('Failed to save AI message:', error);
+          }
+        }
+
+        setIsTyping(false);
+
+        // Now give feedback on the teen's reply, with the predator's response in
+        // context — this grounds the feedback in what actually happened.
+        generateFeedback(conversationWithReply, userReplyIndex, replyStage);
       })
-        .then(res => res.json())
-        .then(async data => {
-          // Handle VT custom session state updates
-          if (selectedModelId === 'vt-custom') {
-            if (data.vtSessionId) setVtSessionId(data.vtSessionId);
-            if (data.stage !== undefined) setAutoStage(data.stage);
-            setStageOverride(null);
-          }
-
-          const autoReply: Message = {
-            id: (Date.now() + 1).toString(),
-            text: data.reply || "Sorry, I couldn't respond right now.",
-            sender: "other",
-            timestamp: new Date(),
-          };
-          setMessages(prev => [...prev, autoReply]);
-
-          // Save AI reply if user type
-          if (userType === 'user') {
-            try {
-              await saveUserMessage(scenarios[currentScenario].id, autoReply);
-            } catch (error) {
-              console.error('Failed to save AI message:', error);
-            }
-          }
-
-          setIsTyping(false);
-        })
-        .catch(error => {
-          console.error('API error:', error);
-          setIsTyping(false);
-        });
-    }
-  };
-
-  const handleMessageClick = (index: number) => {
-    setSelectedMessageIndex(index);
-
-    // Check if feedback already exists for this message
-    if (messageFeedbackMap.has(index)) {
-      setCurrentFeedback(messageFeedbackMap.get(index) || null);
-    } else {
-      // Generate new feedback
-      generateFeedback(index);
-    }
+      .catch(error => {
+        console.error('API error:', error);
+        setIsTyping(false);
+        setPendingFeedbackId(null);
+      });
   };
 
   const handlePreviewFeedback = async () => {
-    if (!responseText.trim() || isGeneratingFeedback || isTyping) return;
+    if (!responseText.trim() || isBusy) return;
 
-    // Check if we already have feedback for this exact text
+    // Already previewed this exact text — just expand the card.
     if (previewText === responseText && previewFeedback) {
-      // Already have feedback, show it
-      setCurrentFeedback(previewFeedback);
-      setSelectedMessageIndex(null);
-
-      // Scroll feedback container to top
-      setTimeout(() => {
-        if (feedbackContainerRef.current) {
-          feedbackContainerRef.current.scrollTop = 0;
-        }
-      }, 100);
+      setExpandedCommentId('preview');
       return;
     }
 
-    setIsGeneratingFeedback(true);
-    setSelectedMessageIndex(null);
+    setPreviewPending(true);
+    const draft = responseText;
+    const previewStage = predictedStage ?? scenario?.stage ?? 1;
 
     try {
-      // Create a temporary message array including the preview message
       const previewMessage: Message = {
         id: 'preview-temp',
-        text: responseText,
+        text: draft,
         sender: 'user',
         timestamp: new Date(),
       };
@@ -367,82 +399,44 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           conversationHistory: conversationWithPreview,
-          feedbackPersona,
-          feedbackInstruction,
-          modelId: selectedFeedbackModelId,
+          stage: previewStage,
+          age,
         }),
       });
 
       const data = await response.json();
+      if (!data.feedback) throw new Error('No feedback in response');
 
-      if (data.feedback) {
-        const feedbackItem: FeedbackItem = {
-          feedback: data.feedback,
-          messageIndex: conversationWithPreview.length - 1,
-          messageCount: conversationWithPreview.length,
-          lastUserMessage: responseText.length > 50
-            ? responseText.substring(0, 50) + '...'
-            : responseText,
-          timestamp: new Date(),
-        };
+      setPreviewFeedback({ text: data.feedback, classification: data.classification });
+      setPreviewText(draft);
+      setExpandedCommentId('preview');
 
-        // Store and show feedback
-        setPreviewFeedback(feedbackItem);
-        setPreviewText(responseText);
-        setCurrentFeedback(feedbackItem);
-
-        // Scroll feedback container to top
-        setTimeout(() => {
-          if (feedbackContainerRef.current) {
-            feedbackContainerRef.current.scrollTop = 0;
-          }
-        }, 100);
-      } else {
-        throw new Error('No feedback in response');
-      }
-
-      setIsGeneratingFeedback(false);
+      // Log the preview event (draft + feedback) for research.
+      savePreviewEvent(scenario.id, {
+        draftText: draft,
+        feedbackText: data.feedback,
+        classification: data.classification,
+        stage: previewStage,
+      });
     } catch (error) {
       console.error('Preview feedback generation error:', error);
-      setIsGeneratingFeedback(false);
+    } finally {
+      setPreviewPending(false);
     }
   };
 
   const resetVtSession = () => {
     setVtSessionId(null);
-    setAutoStage(null);
-    setStageOverride(null);
+    setPredictedStage(scenario ? scenario.stage : null);
   };
 
-  const handleModelChange = async (newModelId: string) => {
-    setSelectedModelId(newModelId);
-    resetVtSession();
-
-    setResponseText("");
-    setIsTyping(false);
-    setCurrentFeedback(null);
-    setMessageFeedbackMap(new Map());
-    setSelectedMessageIndex(null);
+  const clearFeedbackUiState = () => {
+    setFeedbackByMessageId(new Map());
+    setExpandedCommentId(null);
+    setPendingFeedbackId(null);
     setPreviewFeedback(null);
     setPreviewText('');
-
-    if (userType === 'user') {
-      await resetScenarioProgress(scenarios[currentScenario].id);
-      const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
-        ...msg,
-        id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}`,
-      }));
-      setMessages(presetMessages);
-      for (const msg of presetMessages) {
-        try {
-          await saveUserMessage(scenarios[currentScenario].id, msg);
-        } catch (error) {
-          console.error('Failed to save preset message:', error);
-        }
-      }
-    } else {
-      setMessages(scenarios[currentScenario].presetMessages);
-    }
+    setPreviewPending(false);
   };
 
   const handlePreviousScenario = () => {
@@ -453,10 +447,7 @@ export default function ChatPage() {
       setMessages(scenarios[prevScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
-      setCurrentFeedback(null);
-      setMessageFeedbackMap(new Map());
-      setSelectedMessageIndex(null);
-      resetVtSession();
+      clearFeedbackUiState();
     }
   };
 
@@ -468,10 +459,7 @@ export default function ChatPage() {
       setMessages(scenarios[nextScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
-      setCurrentFeedback(null);
-      setMessageFeedbackMap(new Map());
-      setSelectedMessageIndex(null);
-      resetVtSession();
+      clearFeedbackUiState();
     }
   };
 
@@ -484,16 +472,14 @@ export default function ChatPage() {
 
     try {
       if (userType === 'user') {
-        // For user type: delete from database
+        // For learners: delete from database
         await resetScenarioProgress(scenarios[currentScenario].id);
 
         // Reset local state
         setMessages([]);
         setResponseText("");
         setIsTyping(false);
-        setCurrentFeedback(null);
-        setMessageFeedbackMap(new Map());
-        setSelectedMessageIndex(null);
+        clearFeedbackUiState();
 
         // Reload messages from DB (will save preset messages as it's empty now)
         const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
@@ -517,13 +503,11 @@ export default function ChatPage() {
           setMessages(savedMessages);
         }
       } else {
-        // For admin type: just reset local state (temporary)
+        // For educators: just reset local state (temporary)
         setMessages(scenarios[currentScenario].presetMessages);
         setResponseText("");
         setIsTyping(false);
-        setCurrentFeedback(null);
-        setMessageFeedbackMap(new Map());
-        setSelectedMessageIndex(null);
+        clearFeedbackUiState();
       }
       resetVtSession();
     } catch (error) {
@@ -532,15 +516,22 @@ export default function ChatPage() {
     }
   };
 
-  const scenario = scenarios[currentScenario];
-
   if (!scenario) return null;
 
-  const isVtCustom = selectedModelId === 'vt-custom';
+  // Stage shown in the chat header (read-only): predicted stage when auto, else fixed.
+  const headerStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
+  const headerStageInfo = GROOMING_STAGES.find(s => s.stage === headerStage);
+  // Resilience score over the participant's classified replies (display only).
+  const resilience = computeResilience(messages);
+
+  // Messages with an anchored comment card in the gutter.
+  const commentMessages = messages.filter(
+    m => m.sender === 'user' && (feedbackByMessageId.has(m.id) || pendingFeedbackId === m.id)
+  );
 
   return (
     <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
@@ -555,12 +546,12 @@ export default function ChatPage() {
             ) : (
               <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
                 <ArrowLeft className="w-5 h-5 mr-2" />
-                {isParent ? "Select an Educator" : "Select a Teacher"}
+                Select a Teacher
               </Link>
             )}
             <Button
-              onClick={() => {
-                logout();
+              onClick={async () => {
+                await logout();
                 router.push("/");
               }}
               variant="ghost"
@@ -576,305 +567,217 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Main Content */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Chat Simulation - Left */}
-          <div className="flex flex-col">
-            <div className="bg-white rounded-lg shadow w-full h-[700px] flex flex-col">
-              {/* Chat Header */}
-              <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center space-x-3">
-                    <Avatar seed={scenario.handle} size={40} />
-                    <div>
-                      <p className="font-semibold">{scenario.predatorName}</p>
-                      <p className="text-sm text-gray-500">{scenario.handle}</p>
-                    </div>
-                  </div>
-                  {!isParent && (
-                  <button
-                    onClick={handleReset}
-                    className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                    title={userType === 'user' ? "Reset scenario (delete all messages, feedback, and progress)" : "Reset conversation"}
-                  >
-                    <RotateCcw className="w-5 h-5" />
-                  </button>
-                  )}
-                </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  {isVtCustom ? (
-                    <select
-                      value={stageOverride !== null ? String(stageOverride) : ''}
-                      onChange={(e) => setStageOverride(e.target.value === '' ? null : parseInt(e.target.value))}
-                      className={`text-xs px-3 py-1 rounded-full font-medium cursor-pointer border-0 focus:outline-none focus:ring-2 focus:ring-offset-1 transition-colors ${
-                        stageOverride !== null
-                          ? getStageColorClass(stageOverride)
-                          : autoStage !== null
-                          ? getStageColorClass(autoStage)
-                          : 'bg-gray-100 text-gray-400 focus:ring-gray-300'
-                      }`}
-                      title="Click to override stage for the next turn"
-                    >
-                      <option value="">
-                        {autoStage !== null
-                          ? `Stage ${autoStage}: ${GROOMING_STAGES.find(s => s.stage === autoStage)?.name} (auto)`
-                          : 'Stage — (detecting...)'}
-                      </option>
-                      {GROOMING_STAGES.map((s) => (
-                        <option key={s.stage} value={s.stage}>
-                          Stage {s.stage}: {s.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
-                      Stage {scenario.stage}: {GROOMING_STAGES.find(s => s.stage === scenario.stage)?.name || 'Unknown'}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2">
-                    <label htmlFor="chat-model-selector" className="text-xs font-medium text-gray-600">
-                      Chat Model:
-                    </label>
-                    <select
-                      id="chat-model-selector"
-                      value={selectedModelId}
-                      onChange={(e) => handleModelChange(e.target.value)}
-                      className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                      title={getModelById(selectedModelId)?.description || 'Select chat AI model'}
-                    >
-                      {AI_MODELS.map((model) => (
-                        <option key={model.id} value={model.id}>
-                          {model.name}
-                        </option>
-                      ))}
-                    </select>
+        {/* Chat card + comment gutter OUTSIDE the card (Google Docs style) */}
+        <div className="flex items-stretch gap-3">
+          {/* Chat card */}
+          <div className="bg-white rounded-lg shadow flex-1 min-w-0 h-[700px] flex flex-col">
+            {/* Chat Header */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center space-x-3">
+                  <Avatar seed={scenario.handle} size={40} />
+                  <div>
+                    <p className="font-semibold">{scenario.predatorName}</p>
+                    <p className="text-sm text-gray-500">{scenario.handle}</p>
                   </div>
                 </div>
+                <button
+                  onClick={handleReset}
+                  className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+                  title={userType === 'user' ? "Reset scenario (delete all messages, feedback, and progress)" : "Reset conversation"}
+                >
+                  <RotateCcw className="w-5 h-5" />
+                </button>
               </div>
-
-              {/* Messages */}
-              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50 scroll-smooth">
-                {messages.map((message, index) => {
-                  const prevMessage = index > 0 ? messages[index - 1] : null;
-                  const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
-
-                  const isFirstInGroup = !prevMessage || prevMessage.sender !== message.sender;
-                  const isLastInGroup = !nextMessage || nextMessage.sender !== message.sender;
-                  const showAvatar = message.sender === "other" && isLastInGroup;
-
-                  return (
-                    <div key={message.id} className={isFirstInGroup ? "mt-2" : "mt-0.5"}>
-                      <MessageBubble
-                        message={message}
-                        isFirstInGroup={isFirstInGroup}
-                        isLastInGroup={isLastInGroup}
-                        showAvatar={showAvatar}
-                        avatarSeed={scenario.handle}
-                        onClick={() => handleMessageClick(index)}
-                        onHover={(isHovering) => setHoveredMessageIndex(isHovering ? index : null)}
-                        hasFeedback={message.feedbackGenerated || false}
-                        isSelected={selectedMessageIndex === index}
-                        isInHoverRange={hoveredMessageIndex !== null && index < hoveredMessageIndex}
-                      />
+              <div className="flex items-center gap-3 flex-wrap">
+                {/* Read-only current stage (hover for description) */}
+                <div className="relative group">
+                  <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStageColorClass(headerStage)} ${headerStageInfo ? 'cursor-help' : ''}`}>
+                    Stage {headerStage}: {headerStageInfo?.name || 'Unknown'}
+                  </div>
+                  {headerStageInfo && (
+                    <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-64 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
+                      <div className="font-semibold mb-1">Stage {headerStageInfo.stage}: {headerStageInfo.name}</div>
+                      <div className="text-gray-200 leading-snug">{headerStageInfo.description}</div>
                     </div>
-                  );
-                })}
-                {isTyping && (
-                  <div className="mt-2">
-                    <TypingIndicator avatarSeed={scenario.handle} />
+                  )}
+                </div>
+                {resilience.classified > 0 && (
+                  <div className="relative group">
+                    <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 cursor-help">
+                      Resilience: {resilience.score !== null ? `${Math.round(resilience.score * 100)}%` : '—'}
+                    </div>
+                    <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-80 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
+                      <div className="font-semibold mb-1">Resilience score</div>
+                      <div className="text-gray-200 leading-snug">
+                        <span className="font-semibold">How it&apos;s calculated:</span> every reply you send is rated{' '}
+                        <span className="text-green-300">protective</span>, <span className="text-amber-300">neutral</span>, or{' '}
+                        <span className="text-red-300">risky</span>. The score is the percentage of protective replies out of
+                        protective + risky (neutral replies don&apos;t count).
+                      </div>
+                      <div className="text-gray-200 leading-snug mt-1.5">
+                        <span className="font-semibold">How it&apos;s used:</span> it shows how consistently you spot and resist
+                        grooming tactics, and your educator and the research team use it to track your progress. Keep it high by
+                        responding safely.
+                      </div>
+                      <div className="text-gray-300 mt-2">
+                        Protective {resilience.protective} · Neutral {resilience.neutral} · Risky {resilience.risky}
+                      </div>
+                    </div>
                   </div>
                 )}
-                <div ref={messagesEndRef} />
               </div>
+            </div>
 
-              {/* Chat Input - Hidden for Parents */}
-              {!isParent && (
-              <div className="bg-white border-t border-gray-200 px-6 py-4 rounded-b-lg">
-                <div className="relative">
+            {/* Messages (spacing unaffected by comments) */}
+            <div
+              ref={messagesContainerRef}
+              onScroll={recomputeCommentPositions}
+              className="flex-1 overflow-y-auto px-6 py-4 bg-gray-50 scroll-smooth"
+            >
+              {messages.map((message, index) => {
+                const prevMessage = index > 0 ? messages[index - 1] : null;
+                const nextMessage = index < messages.length - 1 ? messages[index + 1] : null;
+
+                const isFirstInGroup = !prevMessage || prevMessage.sender !== message.sender;
+                const isLastInGroup = !nextMessage || nextMessage.sender !== message.sender;
+                const showAvatar = message.sender === "other" && isLastInGroup;
+
+                const hasComment = feedbackByMessageId.has(message.id);
+
+                return (
                   <div
-                    className={`relative ${responseText.trim() && !isTyping && !isGeneratingFeedback ? 'ring-2 ring-gray-400 ring-offset-2 rounded-full transition-all' : ''} ${previewFeedback && previewText === responseText ? 'cursor-pointer' : ''}`}
-                    onClick={() => {
-                      // When clicking on input area with preview feedback, show the preview feedback
-                      if (previewFeedback && previewText === responseText) {
-                        setCurrentFeedback(previewFeedback);
-                        setSelectedMessageIndex(null);
+                    key={message.id}
+                    ref={(el) => {
+                      if (message.sender !== 'user') return;
+                      if (el) messageRowRefs.current.set(message.id, el);
+                      else messageRowRefs.current.delete(message.id);
+                    }}
+                    className={isFirstInGroup ? "mt-2" : "mt-0.5"}
+                  >
+                    <MessageBubble
+                      message={message}
+                      isFirstInGroup={isFirstInGroup}
+                      isLastInGroup={isLastInGroup}
+                      showAvatar={showAvatar}
+                      avatarSeed={scenario.handle}
+                      fallbackStage={scenario.stage}
+                      onClick={
+                        hasComment
+                          ? () => setExpandedCommentId(prev => (prev === message.id ? null : message.id))
+                          : undefined
+                      }
+                    />
+                  </div>
+                );
+              })}
+              {isTyping && (
+                <div className="mt-2">
+                  <TypingIndicator avatarSeed={scenario.handle} />
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
 
-                        // Scroll feedback container to top
-                        setTimeout(() => {
-                          if (feedbackContainerRef.current) {
-                            feedbackContainerRef.current.scrollTop = 0;
-                          }
-                        }, 100);
+            {/* Chat Input */}
+            <div className="bg-white border-t border-gray-200 px-6 py-4 rounded-b-lg">
+              <div className="relative">
+                <div className={`relative ${responseText.trim() && !isBusy ? 'ring-2 ring-gray-400 ring-offset-2 rounded-full transition-all' : ''}`}>
+                  <input
+                    type="text"
+                    value={responseText}
+                    onChange={(e) => setResponseText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendResponse();
                       }
                     }}
-                  >
-                    <input
-                      type="text"
-                      value={responseText}
-                      onChange={(e) => {
-                        const newText = e.target.value;
-                        setResponseText(newText);
-
-                        // Clear preview feedback if text changed
-                        if (newText !== previewText) {
-                          setPreviewFeedback(null);
-                          setPreviewText('');
-                          setCurrentFeedback(null);
-                          setSelectedMessageIndex(null);
-                        }
-                      }}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        // When clicking on input with preview feedback, show the preview feedback
-                        if (previewFeedback && previewText === responseText) {
-                          setCurrentFeedback(previewFeedback);
-                          setSelectedMessageIndex(null);
-
-                          // Scroll feedback container to top
-                          setTimeout(() => {
-                            if (feedbackContainerRef.current) {
-                              feedbackContainerRef.current.scrollTop = 0;
-                            }
-                          }, 100);
-                        }
-                      }}
-                      onFocus={() => {
-                        // When focusing on input with preview feedback, show the preview feedback
-                        if (previewFeedback && previewText === responseText) {
-                          setCurrentFeedback(previewFeedback);
-                          setSelectedMessageIndex(null);
-
-                          // Scroll feedback container to top
-                          setTimeout(() => {
-                            if (feedbackContainerRef.current) {
-                              feedbackContainerRef.current.scrollTop = 0;
-                            }
-                          }, 100);
-                        }
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && !e.shiftKey) {
-                          e.preventDefault();
-                          handleSendResponse();
-                        }
-                      }}
-                      disabled={isTyping || isGeneratingFeedback}
-                      className="w-full pl-6 pr-28 py-4 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:cursor-not-allowed text-base"
-                      placeholder="Send a message..."
-                    />
-                    {responseText.trim() && !isTyping && !isGeneratingFeedback && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    disabled={isBusy}
+                    className="w-full pl-6 pr-28 py-4 bg-gray-100 rounded-full focus:outline-none focus:ring-2 focus:ring-purple-500 disabled:cursor-not-allowed text-base"
+                    placeholder="Send a message..."
+                  />
+                  {responseText.trim() && !isBusy && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                      <div className="relative group">
                         <button
                           onClick={handlePreviewFeedback}
-                          onMouseEnter={() => setHoveredButton('preview')}
-                          onMouseLeave={() => setHoveredButton(null)}
                           className="p-2.5 bg-blue-500 rounded-full text-white hover:bg-blue-600 transition-colors"
-                          title="Preview feedback before sending"
                         >
                           <Eye className="w-5 h-5" />
                         </button>
+                        <div className="absolute z-50 hidden group-hover:block bottom-full right-0 mb-2 w-56 p-2.5 rounded-lg bg-gray-900 text-white text-xs shadow-xl pointer-events-none">
+                          Preview {teacherName}&apos;s feedback on your draft before sending it.
+                        </div>
+                      </div>
+                      <div className="relative group">
                         <button
                           onClick={handleSendResponse}
-                          onMouseEnter={() => setHoveredButton('send')}
-                          onMouseLeave={() => setHoveredButton(null)}
                           className="p-2.5 bg-purple-600 rounded-full text-white hover:bg-purple-700 transition-colors"
                         >
                           <Send className="w-5 h-5 fill-current" />
                         </button>
+                        <div className="absolute z-50 hidden group-hover:block bottom-full right-0 mb-2 px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-xs shadow-xl pointer-events-none whitespace-nowrap">
+                          Send message
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  {hoveredButton && responseText.trim() && !isTyping && !isGeneratingFeedback && (
-                    <span className="absolute -top-6 left-0 text-xs text-gray-500 whitespace-nowrap">
-                      {hoveredButton === 'preview' ? 'Preview feedback before sending' : 'Send message'}
-                    </span>
+                    </div>
                   )}
                 </div>
               </div>
-              )}
             </div>
           </div>
 
-          {/* Feedback - Right */}
-          <div className="flex flex-col">
-            {/* Feedback Section */}
-            <div className="bg-white rounded-lg shadow p-6 flex flex-col overflow-hidden h-[700px]">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <h2 className="text-lg font-semibold">RYLAI&apos;s Feedback:</h2>
-                  {currentFeedback && (
-                    <p className="text-xs text-gray-500 mt-1">
-                      {previewFeedback && currentFeedback === previewFeedback
-                        ? `Preview Feedback for message "${currentFeedback.lastUserMessage}"`
-                        : `Feedback for message "${currentFeedback.lastUserMessage}"`
-                      }
-                    </p>
-                  )}
+          {/* Comment gutter — floats outside the chat card, comments track their
+              anchor messages while the chat scrolls */}
+          <div ref={gutterRef} className="hidden md:block w-72 flex-shrink-0 relative overflow-hidden">
+            {commentMessages.map((message) => {
+              const fb = feedbackByMessageId.get(message.id);
+              const isPendingCard = pendingFeedbackId === message.id && fb === undefined;
+              const top = commentTops.get(message.id);
+              return (
+                <div
+                  key={message.id}
+                  ref={(el) => {
+                    if (el) commentRefs.current.set(message.id, el);
+                    else commentRefs.current.delete(message.id);
+                  }}
+                  className="absolute left-0 right-0"
+                  style={{ top: top ?? 0, visibility: top === undefined ? 'hidden' : 'visible' }}
+                >
+                  <FeedbackComment
+                    name={teacherName}
+                    avatarSeed={teacherSeed}
+                    text={fb ?? ''}
+                    classification={message.classification ?? undefined}
+                    loading={isPendingCard}
+                    expanded={expandedCommentId === message.id}
+                    onToggle={() => setExpandedCommentId(prev => (prev === message.id ? null : message.id))}
+                  />
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <label htmlFor="feedback-model-selector" className="text-xs font-medium text-gray-600 whitespace-nowrap">
-                    Model:
-                  </label>
-                  <select
-                    id="feedback-model-selector"
-                    value={selectedFeedbackModelId}
-                    onChange={(e) => setSelectedFeedbackModelId(e.target.value)}
-                    className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white hover:border-purple-400 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                    title={getModelById(selectedFeedbackModelId)?.description || 'Select feedback AI model'}
-                  >
-                    {AI_MODELS.filter((model) => model.provider !== 'vt-custom').map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+              );
+            })}
 
-              <div
-                ref={feedbackContainerRef}
-                className="flex-1 overflow-y-auto text-gray-700 min-h-0"
-              >
-                {!currentFeedback && !isGeneratingFeedback ? (
-                  <p className="text-gray-400 italic">
-                    Click on any message or preview your input to generate feedback...
-                  </p>
-                ) : isGeneratingFeedback ? (
-                  <div className="flex items-center space-x-2 text-gray-500">
-                    <div className="animate-pulse">●</div>
-                    <div className="animate-pulse delay-75">●</div>
-                    <div className="animate-pulse delay-150">●</div>
-                    <span className="text-sm">Generating feedback...</span>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="text-sm text-gray-800 leading-relaxed">
-                      <ReactMarkdown
-                        components={{
-                          h1: (props) => <h1 className="text-xl font-bold mb-3 text-gray-900" {...props} />,
-                          h2: (props) => <h2 className="text-lg font-semibold mb-2 mt-4 text-gray-900" {...props} />,
-                          h3: (props) => <h3 className="text-base font-semibold mb-2 mt-3 text-gray-900" {...props} />,
-                          p: (props) => <p className="mb-3 text-gray-800" {...props} />,
-                          ul: (props) => <ul className="list-disc list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                          ol: (props) => <ol className="list-decimal list-inside mb-3 space-y-1 text-gray-800" {...props} />,
-                          li: (props) => <li className="text-gray-800" {...props} />,
-                          strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
-                          em: (props) => <em className="italic text-gray-800" {...props} />,
-                          code: (props) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono text-gray-900" {...props} />,
-                        }}
-                      >
-                        {currentFeedback?.feedback || ''}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                )}
+            {/* Preview card, anchored to the input row at the bottom */}
+            {(previewPending || previewFeedback) && (
+              <div className="absolute left-0 right-0 bottom-3">
+                <FeedbackComment
+                  name={teacherName}
+                  avatarSeed={teacherSeed}
+                  subtitle="Preview"
+                  text={previewFeedback?.text ?? ''}
+                  classification={previewFeedback?.classification}
+                  loading={previewPending}
+                  expanded={expandedCommentId === 'preview'}
+                  onToggle={() => setExpandedCommentId(prev => (prev === 'preview' ? null : 'preview'))}
+                />
               </div>
-            </div>
+            )}
           </div>
         </div>
 
         {/* Navigation */}
-        <div className="max-w-7xl mx-auto mt-8">
+        <div className="mt-8">
           <div className="flex justify-between items-center">
             <Button
               onClick={handlePreviousScenario}

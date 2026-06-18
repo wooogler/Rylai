@@ -5,18 +5,18 @@
   "private": true,
   "scripts": {
     "dev": "npm run db:migrate && next dev --turbopack",
-    "dev:local": "npm run db:migrate && NEXT_PUBLIC_USE_LOCAL_API=true next dev --turbopack",
     "build": "npm run db:migrate && next build",
     "start": "next start",
     "lint": "eslint",
     "db:migrate": "tsx lib/db/migrate.ts",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "set-password": "tsx scripts/set-password.ts"
   },
   "dependencies": {
     "@dicebear/collection": "^9.2.4",
     "@dicebear/core": "^9.2.4",
-    "@supabase/supabase-js": "^2.58.0",
     "@tailwindcss/typography": "^0.5.19",
+    "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.5.0",
     "drizzle-orm": "^0.45.1",
     "lucide-react": "^0.544.0",
@@ -25,11 +25,13 @@
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-markdown": "^10.1.0",
+    "zod": "^4.4.3",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
+    "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^20",
     "@types/react": "^19",
