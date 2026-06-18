@@ -19,6 +19,8 @@ export async function GET() {
         username: true,
         userType: true,
         age: true,
+        feedbackConfig: true,
+        classificationConfig: true,
       },
     });
 

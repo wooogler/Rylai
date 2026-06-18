@@ -15,6 +15,20 @@
       "when": 1781291403888,
       "tag": "0001_left_captain_marvel",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1781806952316,
+      "tag": "0002_wakeful_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1781807825894,
+      "tag": "0003_eminent_ikaris",
+      "breakpoints": true
     }
   ]
 }

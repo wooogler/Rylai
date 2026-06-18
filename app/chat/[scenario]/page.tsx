@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, Settings, Eye } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, GROOMING_STAGES, computeResilience } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, GROOMING_STAGES, computeResilience } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
@@ -14,6 +14,7 @@ import Button from "@/components/Button";
 interface PreviewFeedback {
   text: string;
   classification?: ResponseLabel;
+  responseType?: ResponseType;
 }
 
 function getStageColorClass(stage: number): string {
@@ -44,6 +45,8 @@ export default function ChatPage() {
     adminUserId,
     adminName,
     currentUser,
+    setAdminContext,
+    loadUserScenarios,
     saveUserMessage,
     saveUserFeedback,
     saveResponseClassification,
@@ -81,6 +84,8 @@ export default function ChatPage() {
   const [previewPending, setPreviewPending] = useState(false);
   const [vtSessionId, setVtSessionId] = useState<string | null>(null);
   const [predictedStage, setPredictedStage] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -150,8 +155,12 @@ export default function ChatPage() {
     const sc = scenarios[currentScenario];
     if (!sc) return;
     const saved = useScenarioStore.getState().vtSessions[sc.id];
-    setVtSessionId(saved?.vtSessionId ?? null);
-    setPredictedStage(saved?.autoStage ?? sc.stage);
+    // Only restore a cached session if it was seeded at the scenario's current starting
+    // stage. If the stage was changed in admin (or the cache predates this check), the
+    // session is stale: forget it and start the displayed stage at the new starting stage.
+    const valid = !!saved && saved.seededStage === sc.stage;
+    setVtSessionId(valid ? saved!.vtSessionId : null);
+    setPredictedStage(valid ? (saved!.autoStage ?? sc.stage) : sc.stage);
   }, [currentScenario, scenarios]);
 
   useEffect(() => {
@@ -223,6 +232,7 @@ export default function ChatPage() {
           conversationHistory: conversation,
           stage,
           age,
+          adminUserId: userType === 'admin' ? userId : adminUserId,
         }),
       });
 
@@ -241,6 +251,7 @@ export default function ChatPage() {
             ? {
                 ...msg,
                 classification: data.classification,
+                responseType: data.responseType,
                 tacticRecognized: data.tacticRecognized,
                 protectiveStrategy: data.protectiveStrategy,
                 rationale: data.rationale,
@@ -256,6 +267,7 @@ export default function ChatPage() {
           if (hasClassification) {
             await saveResponseClassification(scenarios[currentScenario].id, target.id, {
               classification: data.classification,
+              responseType: data.responseType ?? 'none',
               tacticRecognized: !!data.tacticRecognized,
               protectiveStrategy: !!data.protectiveStrategy,
               rationale: data.rationale ?? '',
@@ -318,6 +330,15 @@ export default function ChatPage() {
 
     const scenarioId = scenario.id;
 
+    // Seed StagePilot at the chosen starting stage on the first turn of a new
+    // session. In auto mode the VT server ignores the session-creation `stage`
+    // seed (it predicts from scratch, which yields Stage 1), so the only way to
+    // honor the starting stage is to force it via the per-turn override on the
+    // first turn; auto-tracking then continues from there. Fixed mode already
+    // pins the stage server-side, so it needs no override.
+    const isFirstTurn = !vtSessionId;
+    const stageOverride = scenario.autoStage && isFirstTurn ? scenario.stage : null;
+
     fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -328,6 +349,7 @@ export default function ChatPage() {
         age,
         autoStage: scenario.autoStage,
         stage: scenario.stage,
+        stageOverride,
       }),
     })
       .then(res => res.json())
@@ -337,7 +359,7 @@ export default function ChatPage() {
         const newStage = data.stage;
         if (data.vtSessionId) setVtSessionId(data.vtSessionId);
         if (newStage !== undefined) setPredictedStage(newStage);
-        setVtSession(scenarioId, newSessionId ?? null, newStage ?? null);
+        setVtSession(scenarioId, newSessionId ?? null, newStage ?? null, scenario.stage);
 
         const autoReply: Message = {
           id: (Date.now() + 1).toString(),
@@ -401,13 +423,14 @@ export default function ChatPage() {
           conversationHistory: conversationWithPreview,
           stage: previewStage,
           age,
+          adminUserId: userType === 'admin' ? userId : adminUserId,
         }),
       });
 
       const data = await response.json();
       if (!data.feedback) throw new Error('No feedback in response');
 
-      setPreviewFeedback({ text: data.feedback, classification: data.classification });
+      setPreviewFeedback({ text: data.feedback, classification: data.classification, responseType: data.responseType });
       setPreviewText(draft);
       setExpandedCommentId('preview');
 
@@ -416,6 +439,7 @@ export default function ChatPage() {
         draftText: draft,
         feedbackText: data.feedback,
         classification: data.classification,
+        responseType: data.responseType,
         stage: previewStage,
       });
     } catch (error) {
@@ -463,56 +487,129 @@ export default function ChatPage() {
     }
   };
 
-  const handleReset = async () => {
-    const scenarioName = scenarios[currentScenario].name;
+  // Pull the educator's latest scenarios + global settings (e.g. age group) from the
+  // DB into the store, so changes they saved on the admin page show up here without
+  // leaving and re-picking the teacher.
+  const reloadEducatorData = async () => {
+    if (userType === 'user' && adminUserId) {
+      try {
+        const res = await fetch('/api/get-admin-info', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ adminId: adminUserId }),
+        });
+        if (res.ok) {
+          const { adminUser } = await res.json();
+          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null);
+        }
+      } catch (error) {
+        console.error('Failed to reload educator settings:', error);
+      }
+    }
+    await loadUserScenarios();
+  };
 
-    if (!confirm(`Are you sure you want to reset "${scenarioName}"?\n\nThis will permanently delete:\n• All messages\n• All feedback\n• Visit history\n\nThis action cannot be undone.`)) {
+  // Refresh (per scenario): reload the teacher's latest version of THIS scenario and
+  // start its conversation over from the beginning. The learner's saved messages,
+  // feedback, and progress for this one scenario are cleared; other scenarios are
+  // untouched. The load effect reseeds the (updated) preset messages once the store
+  // refreshes, so there's no manual seeding here.
+  const handleRefreshScenario = async () => {
+    if (isBusy || isRefreshing || isResetting) return;
+
+    const scenarioName = scenarios[currentScenario].name;
+    if (!confirm(
+      `Refresh "${scenarioName}"?\n\n` +
+      `This loads your teacher's latest version of this scenario and starts the ` +
+      `conversation over from the beginning. Your messages and feedback for this ` +
+      `scenario will be cleared.`
+    )) {
       return;
     }
 
+    setIsRefreshing(true);
     try {
+      const scenarioId = scenarios[currentScenario].id;
+
+      // Clear this scenario's saved conversation/progress in the DB for learners,
+      // then forget the chat session so the predator starts fresh.
       if (userType === 'user') {
-        // For learners: delete from database
-        await resetScenarioProgress(scenarios[currentScenario].id);
-
-        // Reset local state
-        setMessages([]);
-        setResponseText("");
-        setIsTyping(false);
-        clearFeedbackUiState();
-
-        // Reload messages from DB (will save preset messages as it's empty now)
-        const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
-
-        if (savedMessages.length === 0) {
-          // Save and display preset messages with unique IDs using timestamp
-          const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
-            ...msg,
-            id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
-          }));
-          setMessages(presetMessages);
-
-          for (const msg of presetMessages) {
-            try {
-              await saveUserMessage(scenarios[currentScenario].id, msg);
-            } catch (error) {
-              console.error('Failed to save preset message:', error);
-            }
-          }
-        } else {
-          setMessages(savedMessages);
-        }
-      } else {
-        // For educators: just reset local state (temporary)
-        setMessages(scenarios[currentScenario].presetMessages);
-        setResponseText("");
-        setIsTyping(false);
-        clearFeedbackUiState();
+        await resetScenarioProgress(scenarioId);
       }
+      setVtSession(scenarioId, null, null);
+
+      await reloadEducatorData();
+
+      // Re-resolve the current scenario by slug (it may have been renamed/removed).
+      const updated = useScenarioStore.getState().scenarios;
+      if (updated.length === 0) return;
+      let idx = updated.findIndex(s => s.slug === scenarioSlug);
+      if (idx < 0) idx = Math.min(currentScenario, updated.length - 1);
+
+      setMessages([]);
+      setResponseText("");
+      setIsTyping(false);
+      clearFeedbackUiState();
       resetVtSession();
+
+      if (idx !== currentScenario) setCurrentScenario(idx);
+      if (updated[idx].slug !== scenarioSlug) router.replace(`/chat/${updated[idx].slug}`);
     } catch (error) {
-      console.error('Failed to reset scenario:', error);
-      alert('Failed to reset scenario. Please try again.');
+      console.error('Failed to refresh scenario:', error);
+      alert('Failed to refresh. Please try again.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Reset (whole module): start the entire scenario set over from the beginning, as if
+  // visiting for the first time. Wipes messages/feedback/progress for EVERY scenario,
+  // reloads the teacher's latest set, and jumps to the first scenario.
+  const handleResetModule = async () => {
+    if (isBusy || isRefreshing || isResetting) return;
+
+    if (!confirm(
+      `Reset the entire module?\n\n` +
+      `This starts the whole set of scenarios over from the beginning. For every ` +
+      `scenario it will permanently delete:\n` +
+      `• All your messages\n• All feedback\n• Visit history\n\n` +
+      `This action cannot be undone.`
+    )) {
+      return;
+    }
+
+    setIsResetting(true);
+    try {
+      // Wipe each scenario's saved data (learners) and forget its chat session.
+      for (const sc of scenarios) {
+        if (userType === 'user') {
+          try {
+            await resetScenarioProgress(sc.id);
+          } catch (error) {
+            console.error('Failed to reset scenario progress:', error);
+          }
+        }
+        setVtSession(sc.id, null, null);
+      }
+
+      await reloadEducatorData();
+
+      // Start over at the first scenario.
+      setMessages([]);
+      setResponseText("");
+      setIsTyping(false);
+      clearFeedbackUiState();
+      resetVtSession();
+
+      const updated = useScenarioStore.getState().scenarios;
+      if (updated.length === 0) return;
+      setCurrentScenario(0);
+      if (updated[0].slug !== scenarioSlug) router.push(`/chat/${updated[0].slug}`);
+    } catch (error) {
+      console.error('Failed to reset module:', error);
+      alert('Failed to reset. Please try again.');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -549,17 +646,29 @@ export default function ChatPage() {
                 Select a Teacher
               </Link>
             )}
-            <Button
-              onClick={async () => {
-                await logout();
-                router.push("/");
-              }}
-              variant="ghost"
-              size="small"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Logout
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={handleResetModule}
+                disabled={isResetting || isRefreshing || isBusy}
+                variant="ghost"
+                size="small"
+                title="Reset the entire module: start the whole scenario set over from the beginning"
+              >
+                <RotateCcw className={`w-4 h-4 mr-2 ${isResetting ? 'animate-spin' : ''}`} />
+                {isResetting ? 'Resetting…' : 'Reset'}
+              </Button>
+              <Button
+                onClick={async () => {
+                  await logout();
+                  router.push("/");
+                }}
+                variant="ghost"
+                size="small"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Logout
+              </Button>
+            </div>
           </div>
           <div className="mb-6">
             <h1 className="text-2xl font-bold">{scenario.name}</h1>
@@ -582,11 +691,12 @@ export default function ChatPage() {
                   </div>
                 </div>
                 <button
-                  onClick={handleReset}
-                  className="p-2 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors"
-                  title={userType === 'user' ? "Reset scenario (delete all messages, feedback, and progress)" : "Reset conversation"}
+                  onClick={handleRefreshScenario}
+                  disabled={isRefreshing || isResetting || isBusy}
+                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Refresh this scenario: reload your teacher's latest version and start the conversation over"
                 >
-                  <RotateCcw className="w-5 h-5" />
+                  <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
                 </button>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -621,7 +731,7 @@ export default function ChatPage() {
                         responding safely.
                       </div>
                       <div className="text-gray-300 mt-2">
-                        Protective {resilience.protective} · Neutral {resilience.neutral} · Risky {resilience.risky}
+                        Protective {resilience.protective} · Neutral {resilience.neutral} · Vulnerable {resilience.vulnerable}
                       </div>
                     </div>
                   </div>
@@ -750,6 +860,7 @@ export default function ChatPage() {
                     avatarSeed={teacherSeed}
                     text={fb ?? ''}
                     classification={message.classification ?? undefined}
+                    responseType={message.responseType ?? undefined}
                     loading={isPendingCard}
                     expanded={expandedCommentId === message.id}
                     onToggle={() => setExpandedCommentId(prev => (prev === message.id ? null : message.id))}
@@ -767,6 +878,7 @@ export default function ChatPage() {
                   subtitle="Preview"
                   text={previewFeedback?.text ?? ''}
                   classification={previewFeedback?.classification}
+                  responseType={previewFeedback?.responseType}
                   loading={previewPending}
                   expanded={expandedCommentId === 'preview'}
                   onToggle={() => setExpandedCommentId(prev => (prev === 'preview' ? null : 'preview'))}

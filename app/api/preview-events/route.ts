@@ -6,7 +6,7 @@ import { previewEvents } from '@/lib/db/schema';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, scenarioId, draftText, feedbackText, classification, stage } = body;
+    const { userId, scenarioId, draftText, feedbackText, classification, responseType, stage } = body;
 
     if (!userId || !scenarioId || draftText === undefined || feedbackText === undefined) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -18,6 +18,7 @@ export async function POST(request: NextRequest) {
       draftText,
       feedbackText,
       classification: classification ?? null,
+      responseType: responseType ?? null,
       stage: typeof stage === 'number' ? stage : null,
       createdAt: new Date(),
     });

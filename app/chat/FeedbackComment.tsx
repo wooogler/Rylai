@@ -2,13 +2,14 @@
 
 import Avatar from "./Avatar";
 import ReactMarkdown from "react-markdown";
-import { CLASSIFICATION_META, type ResponseLabel } from "../store/useScenarioStore";
+import { CLASSIFICATION_META, RESPONSE_TYPE_META, type ResponseLabel, type ResponseType } from "../store/useScenarioStore";
 
 interface FeedbackCommentProps {
   name: string;
   avatarSeed: string;
   text: string;
   classification?: ResponseLabel;
+  responseType?: ResponseType;
   loading?: boolean;
   expanded: boolean;
   onToggle: () => void;
@@ -23,12 +24,18 @@ export default function FeedbackComment({
   avatarSeed,
   text,
   classification,
+  responseType,
   loading = false,
   expanded,
   onToggle,
   subtitle,
 }: FeedbackCommentProps) {
   const meta = classification ? CLASSIFICATION_META[classification] : null;
+  // The paper's response-type sub-label (hidden for neutral / 'none').
+  const typeMeta =
+    responseType && responseType !== "none" ? RESPONSE_TYPE_META[responseType] : null;
+  const typeBadge =
+    typeMeta && typeMeta.polarity !== "none" ? CLASSIFICATION_META[typeMeta.polarity].badge : "";
   // Focused (expanded) cards take the color assigned to the evaluation;
   // collapsed cards stay gray.
   const expandedBorder = meta ? meta.border : "border-gray-400";
@@ -59,6 +66,15 @@ export default function FeedbackComment({
           </span>
         )}
       </div>
+
+      {/* Response-type sub-label (paper taxonomy) */}
+      {typeMeta && (
+        <div className="mt-1.5">
+          <span className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded ${typeBadge}`}>
+            {typeMeta.label}
+          </span>
+        </div>
+      )}
 
       {/* Body */}
       {loading ? (

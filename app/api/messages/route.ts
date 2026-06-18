@@ -28,6 +28,7 @@ export async function GET(request: NextRequest) {
       sender: row.sender as "user" | "other",
       stage: row.stage,
       classification: row.classification,
+      responseType: row.responseType,
       tacticRecognized: row.tacticRecognized,
       protectiveStrategy: row.protectiveStrategy,
       rationale: row.rationale,
@@ -92,7 +93,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, scenarioId, messageId, classification, tacticRecognized, protectiveStrategy, rationale } = body;
+    const { userId, scenarioId, messageId, classification, responseType, tacticRecognized, protectiveStrategy, rationale } = body;
 
     if (!userId || !scenarioId || !messageId) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -101,6 +102,7 @@ export async function PATCH(request: NextRequest) {
     await db.update(userMessages)
       .set({
         classification: classification ?? null,
+        responseType: responseType ?? null,
         tacticRecognized: typeof tacticRecognized === 'boolean' ? tacticRecognized : null,
         protectiveStrategy: typeof protectiveStrategy === 'boolean' ? protectiveStrategy : null,
         rationale: rationale ?? null,

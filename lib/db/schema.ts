@@ -1,5 +1,43 @@
 import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
+// Per-educator overrides for the feedback / classification prompts. Every field is
+// optional: a missing (or empty) value falls back to the hardcoded system default
+// (see lib/feedback-prompts.ts and lib/classification-criteria.ts). Stage keys are
+// 1-6. Anchor lists are stored as newline-separated strings (one bullet per line).
+export type StageKey = 1 | 2 | 3 | 4 | 5 | 6;
+
+export interface FeedbackConfig {
+  persona?: string; // global → FEEDBACK_BASE
+  instruction?: string; // global → FEEDBACK_INSTRUCTION
+  stages?: Partial<Record<StageKey, { description?: string; goal?: string }>>;
+}
+
+export interface ClassificationConfig {
+  labelDefinitions?: { protective?: string; neutral?: string; vulnerable?: string };
+  signals?: { tacticRecognized?: string; protectiveStrategy?: string };
+  stages?: Partial<Record<StageKey, { protective?: string; vulnerable?: string }>>;
+}
+
+// Per-reply response type — the paper's stage-based taxonomy (Zhang et al., CHI '26):
+// four protective strategies and four vulnerable behaviors, plus 'none' for neutral /
+// unclear replies. Captured alongside the 3-way classification for research and
+// stage-appropriate coaching.
+export const RESPONSE_TYPES = [
+  // Protective strategies
+  'setting_boundaries',
+  'directly_declining',
+  'signaling_risk_awareness',
+  'leveraging_avoidance',
+  // Vulnerable behaviors
+  'encouraging_escalation',
+  'accepting_advance',
+  'displaying_vulnerability',
+  'negating_risk_concern',
+  // Neutral / not applicable
+  'none',
+] as const;
+export type ResponseType = (typeof RESPONSE_TYPES)[number];
+
 // Users table — username + password authentication (no email; nothing is emailed).
 // `username` is the login id and the name shown to learners when picking an educator.
 // userType: 'admin' (educator) creates scenarios; 'user' (learner) practices them.
@@ -17,6 +55,10 @@ export const users = sqliteTable(
     // Global (per-educator) simulated victim age, sent to the VT session to scale
     // the grooming guardrails. Stored as a representative integer (13 / 15 / 17).
     age: integer('age'),
+    // Per-educator overrides for the feedback / classification prompts. Null means
+    // "use system defaults" for every field. Resolved server-side in /api/feedback.
+    feedbackConfig: text('feedback_config', { mode: 'json' }).$type<FeedbackConfig>(),
+    classificationConfig: text('classification_config', { mode: 'json' }).$type<ClassificationConfig>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -86,9 +128,11 @@ export const userMessages = sqliteTable(
     sender: text('sender', { enum: ['user', 'other'] }).notNull(),
     // VT Custom predicted grooming stage for predator messages (null otherwise).
     stage: integer('stage'),
-    // Feedback-agent classification of a participant (user) reply. Null for predator
-    // messages and any reply not yet classified. Used for the resilience score.
-    classification: text('classification', { enum: ['protective', 'neutral', 'risky'] }),
+    // Feedback-agent classification of a participant (user) reply. Null for online
+    // stranger messages and any reply not yet classified. Used for the resilience score.
+    classification: text('classification', { enum: ['protective', 'neutral', 'vulnerable'] }),
+    // Finer-grained response type from the paper taxonomy (one of RESPONSE_TYPES).
+    responseType: text('response_type', { enum: RESPONSE_TYPES }),
     tacticRecognized: integer('tactic_recognized', { mode: 'boolean' }),
     protectiveStrategy: integer('protective_strategy', { mode: 'boolean' }),
     rationale: text('rationale'),
@@ -179,7 +223,8 @@ export const previewEvents = sqliteTable(
       .references(() => scenarios.id, { onDelete: 'cascade' }),
     draftText: text('draft_text').notNull(),
     feedbackText: text('feedback_text').notNull(),
-    classification: text('classification', { enum: ['protective', 'neutral', 'risky'] }),
+    classification: text('classification', { enum: ['protective', 'neutral', 'vulnerable'] }),
+    responseType: text('response_type', { enum: RESPONSE_TYPES }),
     stage: integer('stage'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()

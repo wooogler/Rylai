@@ -40,6 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# PDFs (e.g. reference papers in docs/) — keep large binaries out of git
+*.pdf
+
 # SQLite database files
 /data/*.db
 /data/*.db-shm

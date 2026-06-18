@@ -3,8 +3,17 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut } from "lucide-react";
-import { useScenarioStore, type Scenario, type Message, AGE_BRACKETS } from "../store/useScenarioStore";
+import { useScenarioStore, type Scenario, type Message } from "../store/useScenarioStore";
 import Button from "@/components/Button";
+import PromptEditor, {
+  type FeedbackEdit,
+  type ClassificationEdit,
+  toFeedbackEdit,
+  toClassificationEdit,
+  fromFeedbackEdit,
+  fromClassificationEdit,
+} from "./PromptEditor";
+import PromptPreview from "./PromptPreview";
 
 function generateSlug(name: string): string {
   return name
@@ -37,6 +46,8 @@ export default function AdminPage() {
   const {
     scenarios,
     age,
+    feedbackConfig,
+    classificationConfig,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -46,6 +57,7 @@ export default function AdminPage() {
     deleteScenario,
     updateScenario,
     setAge,
+    saveAdminPrompts,
     deleteAccount
   } = useScenarioStore();
 
@@ -57,13 +69,20 @@ export default function AdminPage() {
   }, [authHydrated, isAuthenticated, isAdmin, router]);
   const [editingScenarios, setEditingScenarios] = useState<Scenario[]>([]);
   const [editingAge, setEditingAge] = useState<number | null>(null);
+  const [editFeedback, setEditFeedback] = useState<FeedbackEdit>(() => toFeedbackEdit(null));
+  const [editClassification, setEditClassification] = useState<ClassificationEdit>(() =>
+    toClassificationEdit(null)
+  );
   const [hasChanges, setHasChanges] = useState(false);
+  const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview'>('scenarios');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setEditingScenarios(JSON.parse(JSON.stringify(scenarios)));
     setEditingAge(age);
-  }, [scenarios, age]);
+    setEditFeedback(toFeedbackEdit(feedbackConfig));
+    setEditClassification(toClassificationEdit(classificationConfig));
+  }, [scenarios, age, feedbackConfig, classificationConfig]);
 
   const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
@@ -147,6 +166,12 @@ export default function AdminPage() {
       // Save the global age setting
       await setAge(editingAge);
 
+      // Save the feedback / classification prompt overrides (null = system defaults)
+      await saveAdminPrompts(
+        fromFeedbackEdit(editFeedback),
+        fromClassificationEdit(editClassification)
+      );
+
       // Update existing scenarios
       for (const scenario of editingScenarios) {
         if (scenarios.find(s => s.id === scenario.id)) {
@@ -174,8 +199,14 @@ export default function AdminPage() {
   };
 
   const handleExport = () => {
+    // Bundle scenarios together with the educator's global settings: learner age and
+    // the feedback / classification prompt overrides (sparse — only fields that differ
+    // from the system defaults, or null when everything is default).
     const exportData = {
+      version: 2,
       age: editingAge,
+      feedbackConfig: fromFeedbackEdit(editFeedback),
+      classificationConfig: fromClassificationEdit(editClassification),
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -184,7 +215,7 @@ export default function AdminPage() {
     const link = document.createElement('a');
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
     link.href = url;
-    link.download = `scenarios-${timestamp}.json`;
+    link.download = `rylai-settings-${timestamp}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -201,20 +232,28 @@ export default function AdminPage() {
         const content = e.target?.result as string;
         const imported = JSON.parse(content);
 
-        // Support both old format (array only) and new format (with scenarios key)
+        // Support old formats (a bare scenarios array, or { scenarios, age }) as well as
+        // the current format, which also carries the feedback / classification prompt
+        // overrides. Prompt fields are only applied when present in the file.
         if (Array.isArray(imported)) {
           setEditingScenarios(imported);
         } else if (imported.scenarios) {
           setEditingScenarios(imported.scenarios);
-          if (typeof imported.age === 'number') {
-            setEditingAge(imported.age);
+          if ('age' in imported) {
+            setEditingAge(typeof imported.age === 'number' ? imported.age : null);
+          }
+          if ('feedbackConfig' in imported) {
+            setEditFeedback(toFeedbackEdit(imported.feedbackConfig ?? null));
+          }
+          if ('classificationConfig' in imported) {
+            setEditClassification(toClassificationEdit(imported.classificationConfig ?? null));
           }
         }
 
         setHasChanges(true);
-        alert("Scenarios imported successfully!");
+        alert("Settings imported successfully!");
       } catch (error) {
-        alert("Failed to import scenarios. Please check the file format.");
+        alert("Failed to import settings. Please check the file format.");
         console.error(error);
       }
     };
@@ -328,44 +367,80 @@ export default function AdminPage() {
               </Button>
             </div>
           </div>
-          <h1 className="text-3xl font-bold">Scenario Management</h1>
+          <h1 className="text-3xl font-bold">Educator Settings</h1>
           <p className="text-gray-600 mt-2">
-            Configure the learner age group and your training scenarios. The predator
-            persona and feedback are fixed by the system and are not editable here.
+            Manage your training scenarios, customize how feedback is written and how
+            learner replies are classified, and preview or test the prompts against the
+            model. Export or import bundles your scenarios together with these prompt
+            settings.
           </p>
         </div>
 
-        {/* Global Settings */}
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Global Settings</h2>
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <label className="block text-lg font-semibold mb-1">Learner Age Group</label>
-            <p className="text-sm text-gray-600 mb-3">
-              Applies to all of your scenarios. The age group scales how the simulation
-              handles sensitive (Stage 5) content.
-            </p>
-            <select
-              value={editingAge === null ? '' : String(editingAge)}
-              onChange={(e) => {
-                setEditingAge(e.target.value === '' ? null : parseInt(e.target.value));
-                setHasChanges(true);
-              }}
-              className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+        {/* Top-level tabs */}
+        <div className="flex gap-1 border-b border-gray-200 mb-6">
+          {([
+            { key: 'scenarios', label: 'Scenarios' },
+            { key: 'prompts', label: 'Prompts' },
+            { key: 'preview', label: 'Preview & Test' },
+          ] as const).map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => setActiveTab(t.key)}
+              className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+                activeTab === t.key
+                  ? 'border-purple-600 text-purple-700'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
             >
-              <option value="">Not set (use system default)</option>
-              {AGE_BRACKETS.map((b) => (
-                <option key={b.value} value={b.value}>
-                  Ages {b.label}
-                </option>
-              ))}
-            </select>
-          </div>
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Scenario Section */}
-        <div>
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Scenario Settings</h2>
+        {/* Feedback & Classification Prompts tab */}
+        {activeTab === 'prompts' && (
+          <div className="mb-8">
+            <p className="text-sm text-gray-600 mb-4">
+              Customize the learner age group, how feedback is written, and how learner
+              replies are classified. Fields are prefilled with the system defaults; edit
+              any of them, or use &quot;Revert to default&quot; to restore. Changes apply to
+              all of your scenarios. Use the <strong>Preview &amp; Test</strong> tab to see
+              the assembled prompt and run it against the model.
+            </p>
+            <PromptEditor
+              feedback={editFeedback}
+              classification={editClassification}
+              age={editingAge}
+              onAgeChange={(next) => {
+                setEditingAge(next);
+                setHasChanges(true);
+              }}
+              onFeedbackChange={(next) => {
+                setEditFeedback(next);
+                setHasChanges(true);
+              }}
+              onClassificationChange={(next) => {
+                setEditClassification(next);
+                setHasChanges(true);
+              }}
+            />
+          </div>
+        )}
 
+        {/* Preview & Test tab */}
+        {activeTab === 'preview' && (
+          <div className="mb-8">
+            <PromptPreview
+              feedback={editFeedback}
+              classification={editClassification}
+            />
+          </div>
+        )}
+
+        {/* Scenario Settings tab */}
+        {activeTab === 'scenarios' && (
+        <div>
           {/* Scenarios List */}
           <div className="space-y-6">
           {editingScenarios.map((scenario, scenarioIndex) => (
@@ -456,7 +531,7 @@ export default function AdminPage() {
 
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Predator Name
+                      Online Stranger Name
                     </label>
                     <input
                       type="text"
@@ -483,7 +558,7 @@ export default function AdminPage() {
                       <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${
                         message.sender === "user" ? "bg-purple-500 text-white" : "bg-gray-300"
                       }`}>
-                        {message.sender === "other" ? "P" : "U"}
+                        {message.sender === "other" ? "S" : "U"}
                       </div>
                       <div className="flex-1 flex gap-2 items-center">
                         <input
@@ -493,7 +568,7 @@ export default function AdminPage() {
                           className={`flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 ${
                             message.sender === "user" ? "bg-purple-50" : "bg-gray-50"
                           }`}
-                          placeholder={message.sender === "user" ? "User message" : "Predator message"}
+                          placeholder={message.sender === "user" ? "User message" : "Online stranger message"}
                         />
                         <button
                           onClick={() => handleDeleteMessage(scenarioIndex, messageIndex)}
@@ -513,7 +588,7 @@ export default function AdminPage() {
                     className="flex items-center px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 rounded-lg"
                   >
                     <Plus className="w-4 h-4 mr-1" />
-                    Add Predator Message
+                    Add Online Stranger Message
                   </button>
                   <button
                     onClick={() => handleAddMessage(scenarioIndex, "user")}
@@ -539,6 +614,7 @@ export default function AdminPage() {
           </button>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

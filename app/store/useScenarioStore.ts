@@ -1,7 +1,9 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import type { FeedbackConfig, ClassificationConfig, ResponseType } from '@/lib/db/schema';
 
-export type ResponseLabel = 'protective' | 'neutral' | 'risky';
+export type { ResponseType };
+export type ResponseLabel = 'protective' | 'neutral' | 'vulnerable';
 
 // Display styling for a response classification (one source of truth for colors).
 export const CLASSIFICATION_META: Record<ResponseLabel, {
@@ -12,7 +14,21 @@ export const CLASSIFICATION_META: Record<ResponseLabel, {
 }> = {
   protective: { label: 'Protective', text: 'text-green-600', border: 'border-green-400', badge: 'bg-green-50 text-green-700' },
   neutral: { label: 'Neutral', text: 'text-amber-600', border: 'border-amber-300', badge: 'bg-amber-50 text-amber-700' },
-  risky: { label: 'Risky', text: 'text-red-600', border: 'border-red-400', badge: 'bg-red-50 text-red-700' },
+  vulnerable: { label: 'Vulnerable', text: 'text-red-600', border: 'border-red-400', badge: 'bg-red-50 text-red-700' },
+};
+
+// Display labels for the paper's response-type taxonomy, and which pole each belongs
+// to (used to color/group the sub-type badge in the UI).
+export const RESPONSE_TYPE_META: Record<ResponseType, { label: string; polarity: 'protective' | 'vulnerable' | 'none' }> = {
+  setting_boundaries: { label: 'Setting boundaries', polarity: 'protective' },
+  directly_declining: { label: 'Directly declining', polarity: 'protective' },
+  signaling_risk_awareness: { label: 'Signaling risk awareness', polarity: 'protective' },
+  leveraging_avoidance: { label: 'Leveraging avoidance', polarity: 'protective' },
+  encouraging_escalation: { label: 'Encouraging escalation', polarity: 'vulnerable' },
+  accepting_advance: { label: 'Accepting an advance', polarity: 'vulnerable' },
+  displaying_vulnerability: { label: 'Displaying vulnerability', polarity: 'vulnerable' },
+  negating_risk_concern: { label: 'Negating risk concern', polarity: 'vulnerable' },
+  none: { label: '', polarity: 'none' },
 };
 
 export interface Message {
@@ -23,33 +39,34 @@ export interface Message {
   feedbackGenerated?: boolean;
   stage?: number | null;
   classification?: ResponseLabel | null;
+  responseType?: ResponseType | null;
   tacticRecognized?: boolean | null;
   protectiveStrategy?: boolean | null;
   rationale?: string | null;
 }
 
-// Resilience score = proportion of protective vs vulnerable (risky) participant
-// responses (Evaluation Plan §5.2). Neutral replies are excluded from the ratio.
+// Resilience score = proportion of protective vs vulnerable participant responses
+// (Evaluation Plan §5.2). Neutral replies are excluded from the ratio.
 export function computeResilience(messages: Message[]): {
   protective: number;
   neutral: number;
-  risky: number;
+  vulnerable: number;
   classified: number;
   score: number | null;
 } {
-  let protective = 0, neutral = 0, risky = 0;
+  let protective = 0, neutral = 0, vulnerable = 0;
   for (const m of messages) {
     if (m.sender !== 'user' || !m.classification) continue;
     if (m.classification === 'protective') protective++;
-    else if (m.classification === 'risky') risky++;
+    else if (m.classification === 'vulnerable') vulnerable++;
     else neutral++;
   }
-  const denom = protective + risky;
+  const denom = protective + vulnerable;
   return {
     protective,
     neutral,
-    risky,
-    classified: protective + neutral + risky,
+    vulnerable,
+    classified: protective + neutral + vulnerable,
     score: denom > 0 ? protective / denom : null,
   };
 }
@@ -148,11 +165,17 @@ export interface AuthUser {
   username: string;
   userType: 'admin' | 'user';
   age?: number | null;
+  feedbackConfig?: FeedbackConfig | null;
+  classificationConfig?: ClassificationConfig | null;
 }
 
 interface VtSessionState {
   vtSessionId: string | null;
   autoStage: number | null;
+  // The scenario's starting stage at the time this session was seeded. If the
+  // scenario's stage is later changed in admin, a cached session with a mismatched
+  // seededStage is treated as stale (so the chat reseeds from the new stage).
+  seededStage?: number | null;
 }
 
 interface ScenarioStore {
@@ -161,6 +184,10 @@ interface ScenarioStore {
   userType: 'admin' | 'user' | null;
   scenarios: Scenario[];
   age: number | null;
+  // Per-educator feedback/classification prompt overrides (admin's own; null = use
+  // system defaults). Loaded for admins from /api/auth/me; not persisted to storage.
+  feedbackConfig: FeedbackConfig | null;
+  classificationConfig: ClassificationConfig | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -173,6 +200,10 @@ interface ScenarioStore {
   setAdminContext: (adminUserId: string, age: number | null, adminName: string | null) => void;
   loadUserScenarios: () => Promise<void>;
   setAge: (age: number | null) => Promise<void>;
+  saveAdminPrompts: (
+    feedbackConfig: FeedbackConfig | null,
+    classificationConfig: ClassificationConfig | null
+  ) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -182,18 +213,18 @@ interface ScenarioStore {
   saveResponseClassification: (
     scenarioId: number,
     messageId: string,
-    payload: { classification: ResponseLabel; tacticRecognized: boolean; protectiveStrategy: boolean; rationale: string }
+    payload: { classification: ResponseLabel; responseType: ResponseType; tacticRecognized: boolean; protectiveStrategy: boolean; rationale: string }
   ) => Promise<void>;
   savePreviewEvent: (
     scenarioId: number,
-    payload: { draftText: string; feedbackText: string; classification?: ResponseLabel; stage?: number }
+    payload: { draftText: string; feedbackText: string; classification?: ResponseLabel; responseType?: ResponseType; stage?: number }
   ) => Promise<void>;
   loadUserMessages: (scenarioId: number) => Promise<Message[]>;
   loadUserFeedbacks: (scenarioId: number) => Promise<Map<string, string>>;
   recordScenarioVisit: (scenarioId: number) => Promise<void>;
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
   resetScenarioProgress: (scenarioId: number) => Promise<void>;
-  setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null) => void;
+  setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null, seededStage?: number | null) => void;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
 }
@@ -207,6 +238,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       userType: null,
       scenarios: [],
       age: null,
+      feedbackConfig: null,
+      classificationConfig: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -224,7 +257,13 @@ export const useScenarioStore = create<ScenarioStore>()(
           isAuthenticated: true,
           isAdmin: user.userType === 'admin',
           authHydrated: true,
-          ...(user.userType === 'admin' ? { age: user.age ?? null } : {}),
+          ...(user.userType === 'admin'
+            ? {
+                age: user.age ?? null,
+                feedbackConfig: user.feedbackConfig ?? null,
+                classificationConfig: user.classificationConfig ?? null,
+              }
+            : {}),
         });
       },
 
@@ -304,6 +343,25 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      // Persist the educator's feedback/classification prompt overrides. Pass null for
+      // a config to clear it back to system defaults.
+      saveAdminPrompts: async (feedbackConfig, classificationConfig) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        set({ feedbackConfig, classificationConfig });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, feedbackConfig, classificationConfig }),
+          });
+        } catch (error) {
+          console.error('Error updating prompts:', error);
+        }
+      },
+
       addScenario: async (scenario: Omit<Scenario, 'id'>) => {
         const { userId } = get();
         if (!userId) return;
@@ -345,11 +403,23 @@ export const useScenarioStore = create<ScenarioStore>()(
             throw new Error('Failed to update scenario');
           }
 
-          set((state) => ({
-            scenarios: state.scenarios.map(scenario =>
-              scenario.id === id ? { ...scenario, ...updates } : scenario
-            ),
-          }));
+          set((state) => {
+            const prev = state.scenarios.find((s) => s.id === id);
+            // The cached VT session holds the last predicted stage. If the starting
+            // stage or auto/fixed mode changed, that session is stale — drop it so the
+            // chat reseeds from the new stage instead of showing the old predicted one.
+            const stageChanged =
+              (updates.stage !== undefined && updates.stage !== prev?.stage) ||
+              (updates.autoStage !== undefined && updates.autoStage !== prev?.autoStage);
+            const vtSessions = { ...state.vtSessions };
+            if (stageChanged) delete vtSessions[id];
+            return {
+              scenarios: state.scenarios.map((scenario) =>
+                scenario.id === id ? { ...scenario, ...updates } : scenario
+              ),
+              vtSessions,
+            };
+          });
         } catch (error) {
           console.error('Error updating scenario:', error);
           throw error;
@@ -554,9 +624,9 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
-      setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null) => {
+      setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null, seededStage: number | null = null) => {
         set((state) => ({
-          vtSessions: { ...state.vtSessions, [scenarioId]: { vtSessionId, autoStage } },
+          vtSessions: { ...state.vtSessions, [scenarioId]: { vtSessionId, autoStage, seededStage } },
         }));
       },
 

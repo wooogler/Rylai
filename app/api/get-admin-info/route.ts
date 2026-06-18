@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { users } from '@/lib/db/schema';
+import { users, type FeedbackConfig, type ClassificationConfig } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
@@ -43,10 +43,19 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// PATCH - Update the educator's global settings (currently just `age`)
+// A config value is either an object (overrides) or null (use system defaults).
+function sanitizeConfig<T>(value: unknown): T | null | undefined {
+  if (value === undefined) return undefined; // not provided → leave column unchanged
+  if (value === null) return null; // explicit clear → revert to system defaults
+  if (typeof value === 'object' && !Array.isArray(value)) return value as T;
+  return undefined; // anything else → ignore
+}
+
+// PATCH - Update the educator's global settings: `age` and the feedback /
+// classification prompt overrides. Only the fields present in the body are changed.
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, age } = await req.json();
+    const { userId, age, feedbackConfig, classificationConfig } = await req.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -55,8 +64,13 @@ export async function PATCH(req: NextRequest) {
       );
     }
 
-    const updates: Record<string, number | null> = {};
+    const updates: Partial<typeof users.$inferInsert> = {};
     if (age !== undefined) updates.age = age;
+
+    const fc = sanitizeConfig<FeedbackConfig>(feedbackConfig);
+    if (fc !== undefined) updates.feedbackConfig = fc;
+    const cc = sanitizeConfig<ClassificationConfig>(classificationConfig);
+    if (cc !== undefined) updates.classificationConfig = cc;
 
     if (Object.keys(updates).length > 0) {
       await db.update(users)
