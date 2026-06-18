@@ -86,6 +86,13 @@ export const scenarios = sqliteTable(
     // When true, the VT model auto-predicts the stage each turn; when false, the
     // session is pinned to `stage`.
     autoStage: integer('auto_stage', { mode: 'boolean' }).notNull().default(true),
+    // Mastery gate: when enabled, the learner must reach a streak of `masteryThreshold`
+    // consecutive non-vulnerable (protective/neutral) replies before advancing.
+    masteryEnabled: integer('mastery_enabled', { mode: 'boolean' }).notNull().default(false),
+    masteryThreshold: integer('mastery_threshold').notNull().default(3),
+    // When true, this scenario continues the previous scenario's conversation instead of
+    // using preset messages (preset messages are disabled).
+    persistMessages: integer('persist_messages', { mode: 'boolean' }).notNull().default(false),
     presetMessages: text('preset_messages', { mode: 'json' })
       .notNull()
       .$type<

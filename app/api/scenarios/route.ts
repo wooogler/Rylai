@@ -7,7 +7,7 @@ import { eq, and } from 'drizzle-orm';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage } = body;
+    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage, masteryEnabled, masteryThreshold, persistMessages } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -24,6 +24,9 @@ export async function POST(request: NextRequest) {
         description,
         stage,
         autoStage: autoStage ?? true,
+        masteryEnabled: masteryEnabled ?? false,
+        masteryThreshold: typeof masteryThreshold === 'number' ? masteryThreshold : 5,
+        persistMessages: persistMessages ?? false,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -68,6 +71,9 @@ export async function PATCH(request: NextRequest) {
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
     if (updates.autoStage !== undefined) dbUpdates.autoStage = updates.autoStage;
+    if (updates.masteryEnabled !== undefined) dbUpdates.masteryEnabled = updates.masteryEnabled;
+    if (updates.masteryThreshold !== undefined) dbUpdates.masteryThreshold = updates.masteryThreshold;
+    if (updates.persistMessages !== undefined) dbUpdates.persistMessages = updates.persistMessages;
 
     await db.update(scenarios)
       .set(dbUpdates)

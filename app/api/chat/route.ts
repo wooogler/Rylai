@@ -48,6 +48,7 @@ interface SessionConfig {
   age: number | null;
   autoStage: boolean;
   stage: number;
+  predName: string | null;
 }
 
 async function createVtSession(
@@ -63,6 +64,7 @@ async function createVtSession(
         text: msg.text,
       })),
       age: config.age,
+      pred_name: config.predName,
       auto_stage: config.autoStage,
       stage: config.stage,
     }),
@@ -97,13 +99,14 @@ async function vtTurn(
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, userMessage, vtSessionId, stageOverride, age, autoStage, stage } = await req.json();
+    const { conversationHistory, userMessage, vtSessionId, stageOverride, age, autoStage, stage, predatorName } = await req.json();
     const history: ConversationMessage[] = conversationHistory ?? [];
     const turnStage: number | null = stageOverride ?? null;
     const sessionConfig: SessionConfig = {
       age: typeof age === 'number' ? age : null,
       autoStage: autoStage !== false, // default true
       stage: typeof stage === 'number' ? stage : 1,
+      predName: typeof predatorName === 'string' && predatorName.trim() ? predatorName.trim() : null,
     };
 
     // Reuse the existing VT session, or seed a new one from the conversation history.
@@ -125,8 +128,15 @@ export async function POST(req: NextRequest) {
       throw new Error(`VT turn request failed: ${turn.status}`);
     }
 
+    // pred_name is applied at session creation, so new sessions get the real name from
+    // the model. As a fallback (e.g. a session created before pred_name existed), also
+    // substitute any leftover [PredName] token in the reply.
+    const reply = sessionConfig.predName
+      ? (turn.data.predator_response || '').replace(/\[PredName\]/gi, sessionConfig.predName)
+      : turn.data.predator_response;
+
     return NextResponse.json({
-      reply: turn.data.predator_response,
+      reply,
       vtSessionId: sessionId,
       stage: turn.data.stage,
       stageLabel: turn.data.stage_label,

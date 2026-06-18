@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, GROOMING_STAGES, computeResilience } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, GROOMING_STAGES, computeResilience, computeStreak, computeStreakLabels } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
@@ -28,6 +28,17 @@ function getStageColorClass(stage: number): string {
     case 6: return 'bg-rose-200 text-rose-800';
     default: return 'bg-gray-100 text-gray-400';
   }
+}
+
+// For a persist scenario the conversation continues from the previous scenario, so the
+// effective starting stage is the chain origin's stage (not this scenario's own stage).
+function effectiveStartStage(
+  scenarios: { stage: number; persistMessages: boolean }[],
+  index: number
+): number {
+  let k = index;
+  while (k > 0 && scenarios[k]?.persistMessages) k -= 1;
+  return scenarios[k]?.stage ?? 1;
 }
 
 export default function ChatPage() {
@@ -159,56 +170,85 @@ export default function ChatPage() {
     // stage. If the stage was changed in admin (or the cache predates this check), the
     // session is stale: forget it and start the displayed stage at the new starting stage.
     const valid = !!saved && saved.seededStage === sc.stage;
+    // Persist scenarios continue from the chain origin's stage, not their own.
+    const base = effectiveStartStage(scenarios, currentScenario);
     setVtSessionId(valid ? saved!.vtSessionId : null);
-    setPredictedStage(valid ? (saved!.autoStage ?? sc.stage) : sc.stage);
+    setPredictedStage(valid ? (saved!.autoStage ?? base) : base);
   }, [currentScenario, scenarios]);
 
   useEffect(() => {
-    // Load messages for learners, or use preset messages for educators (admins).
+    const sc = scenarios[currentScenario];
+
+    // Restore the displayed stage from the most recent online-stranger message.
+    const restoreStage = (msgs: Message[]) => {
+      const last = [...msgs].reverse().find(m => m.sender === 'other' && typeof m.stage === 'number')?.stage;
+      if (typeof last === 'number') setPredictedStage(last);
+    };
+
+    // For a persist scenario, build the carried-over conversation: walk back the persist
+    // chain and concatenate each source scenario's saved messages/feedback, tagging them
+    // as carried (display-only; excluded from streak/resilience, not re-saved).
+    const buildCarried = async (): Promise<{ msgs: Message[]; fb: Map<string, string> }> => {
+      const sources: number[] = [];
+      let k = currentScenario;
+      while (k > 0 && scenarios[k].persistMessages) {
+        sources.unshift(k - 1);
+        k -= 1;
+      }
+      const msgs: Message[] = [];
+      const fb = new Map<string, string>();
+      for (const idx of sources) {
+        const sid = scenarios[idx].id;
+        const m = await loadUserMessages(sid);
+        const f = await loadUserFeedbacks(sid);
+        for (const mm of m) msgs.push({ ...mm, carried: true });
+        f.forEach((v, key) => fb.set(key, v));
+      }
+      return { msgs, fb };
+    };
+
+    // Load the saved conversation (same path for learners and educator previews) — or
+    // initialize from preset messages on first visit.
     const loadMessages = async () => {
-      if (userType === 'user' && scenarios[currentScenario]) {
-        const savedMessages = await loadUserMessages(scenarios[currentScenario].id);
-        const savedFeedbacks = await loadUserFeedbacks(scenarios[currentScenario].id);
+      if (!sc) return;
 
-        // Record visit
-        await recordScenarioVisit(scenarios[currentScenario].id);
+      await recordScenarioVisit(sc.id);
+      const progressMap = await loadScenarioProgress();
+      setScenarioProgressMap(progressMap);
 
-        // Load progress for all scenarios
-        const progressMap = await loadScenarioProgress();
-        setScenarioProgressMap(progressMap);
+      const ownMessages = await loadUserMessages(sc.id);
+      const ownFeedbacks = await loadUserFeedbacks(sc.id);
 
-        if (savedMessages.length > 0) {
-          setMessages(savedMessages);
-          setFeedbackByMessageId(savedFeedbacks);
+      if (sc.persistMessages && currentScenario > 0) {
+        // Continue the previous scenario's conversation; preset messages are not used.
+        const { msgs: carried, fb: carriedFb } = await buildCarried();
+        const combined = [...carried, ...ownMessages];
+        const fbMap = new Map(carriedFb);
+        ownFeedbacks.forEach((v, key) => fbMap.set(key, v));
+        setMessages(combined);
+        setFeedbackByMessageId(fbMap);
+        restoreStage(combined);
+      } else if (ownMessages.length > 0) {
+        setMessages(ownMessages);
+        setFeedbackByMessageId(ownFeedbacks);
+        restoreStage(ownMessages);
+      } else {
+        setFeedbackByMessageId(new Map());
+        // First time: save preset messages with unique IDs using timestamp
+        const presetMessages = sc.presetMessages.map((msg, index) => ({
+          ...msg,
+          id: `${sc.id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
+        }));
+        setMessages(presetMessages);
 
-          // Restore the stage from the most recent predator message.
-          const lastPredatorStage = [...savedMessages]
-            .reverse()
-            .find(m => m.sender === 'other' && typeof m.stage === 'number')?.stage;
-          if (typeof lastPredatorStage === 'number') {
-            setPredictedStage(lastPredatorStage);
-          }
-        } else {
-          setFeedbackByMessageId(new Map());
-          // First time: save preset messages with unique IDs using timestamp
-          const presetMessages = scenarios[currentScenario].presetMessages.map((msg, index) => ({
-            ...msg,
-            id: `${scenarios[currentScenario].id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
-          }));
-          setMessages(presetMessages);
-
-          // Save preset messages to DB
-          for (const msg of presetMessages) {
-            try {
-              await saveUserMessage(scenarios[currentScenario].id, msg);
-            } catch (error) {
-              console.error('Failed to save preset message:', error);
-            }
+        // Save preset messages to DB
+        for (const msg of presetMessages) {
+          try {
+            await saveUserMessage(sc.id, msg);
+          } catch (error) {
+            console.error('Failed to save preset message:', error);
           }
         }
-      } else if (scenarios[currentScenario]) {
-        setMessages(scenarios[currentScenario].presetMessages);
-        setFeedbackByMessageId(new Map());
       }
     };
 
@@ -261,7 +301,7 @@ export default function ChatPage() {
       }
 
       // Save feedback + classification for learners
-      if (userType === 'user') {
+      if (userId) {
         try {
           await saveUserFeedback(scenarios[currentScenario].id, target.id, data.feedback);
           if (hasClassification) {
@@ -313,7 +353,7 @@ export default function ChatPage() {
     setPendingFeedbackId(newMessage.id);
 
     // Save user message for learners
-    if (userType === 'user') {
+    if (userId) {
       try {
         await saveUserMessage(scenarios[currentScenario].id, newMessage);
       } catch (error) {
@@ -337,7 +377,12 @@ export default function ChatPage() {
     // first turn; auto-tracking then continues from there. Fixed mode already
     // pins the stage server-side, so it needs no override.
     const isFirstTurn = !vtSessionId;
-    const stageOverride = scenario.autoStage && isFirstTurn ? scenario.stage : null;
+    const isPersist = scenario.persistMessages && currentScenario > 0;
+    // Fresh scenario: seed at its starting stage on the first turn. Persist scenario:
+    // continue from the carried/current stage instead of resetting to its own stage.
+    const stageOverride = scenario.autoStage && isFirstTurn
+      ? (isPersist ? predictedStage : scenario.stage)
+      : null;
 
     fetch('/api/chat', {
       method: 'POST',
@@ -350,6 +395,7 @@ export default function ChatPage() {
         autoStage: scenario.autoStage,
         stage: scenario.stage,
         stageOverride,
+        predatorName: scenario.predatorName,
       }),
     })
       .then(res => res.json())
@@ -372,7 +418,7 @@ export default function ChatPage() {
         setMessages(conversationWithReply);
 
         // Save AI reply for learners
-        if (userType === 'user') {
+        if (userId) {
           try {
             await saveUserMessage(scenarioId, autoReply);
           } catch (error) {
@@ -468,7 +514,7 @@ export default function ChatPage() {
       const prevScenario = currentScenario - 1;
       router.push(`/chat/${scenarios[prevScenario].slug}`);
       setCurrentScenario(prevScenario);
-      setMessages(scenarios[prevScenario].presetMessages);
+      setMessages(scenarios[prevScenario].persistMessages ? [] : scenarios[prevScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
       clearFeedbackUiState();
@@ -476,11 +522,16 @@ export default function ChatPage() {
   };
 
   const handleNextScenario = () => {
+    // Mastery gate: learners must reach the streak before advancing.
+    const sc = scenarios[currentScenario];
+    if (sc?.masteryEnabled && userType === 'user' && computeStreak(messages) < sc.masteryThreshold) {
+      return;
+    }
     if (currentScenario < scenarios.length - 1) {
       const nextScenario = currentScenario + 1;
       router.push(`/chat/${scenarios[nextScenario].slug}`);
       setCurrentScenario(nextScenario);
-      setMessages(scenarios[nextScenario].presetMessages);
+      setMessages(scenarios[nextScenario].persistMessages ? [] : scenarios[nextScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
       clearFeedbackUiState();
@@ -533,7 +584,7 @@ export default function ChatPage() {
 
       // Clear this scenario's saved conversation/progress in the DB for learners,
       // then forget the chat session so the predator starts fresh.
-      if (userType === 'user') {
+      if (userId) {
         await resetScenarioProgress(scenarioId);
       }
       setVtSession(scenarioId, null, null);
@@ -582,7 +633,7 @@ export default function ChatPage() {
     try {
       // Wipe each scenario's saved data (learners) and forget its chat session.
       for (const sc of scenarios) {
-        if (userType === 'user') {
+        if (userId) {
           try {
             await resetScenarioProgress(sc.id);
           } catch (error) {
@@ -620,6 +671,14 @@ export default function ChatPage() {
   const headerStageInfo = GROOMING_STAGES.find(s => s.stage === headerStage);
   // Resilience score over the participant's classified replies (display only).
   const resilience = computeResilience(messages);
+  // Mastery: consecutive non-vulnerable replies in this scenario (carried-over excluded).
+  const streakLabels = computeStreakLabels(messages);
+  const streak = streakLabels.length;
+  const mastered = streak >= scenario.masteryThreshold;
+  // The learner can't advance until they reach the streak (admins are not gated).
+  const masteryLocked = scenario.masteryEnabled && userType === 'user' && !mastered;
+  // Show the lock hint only when there's actually a next scenario to unlock.
+  const showLockTip = masteryLocked && currentScenario < scenarios.length - 1;
 
   // Messages with an anchored comment card in the gutter.
   const commentMessages = messages.filter(
@@ -712,7 +771,44 @@ export default function ChatPage() {
                     </div>
                   )}
                 </div>
-                {resilience.classified > 0 && (
+                {scenario.masteryEnabled ? (
+                  <div className="relative group">
+                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium cursor-help ${
+                      mastered ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
+                    }`}>
+                      <span>{mastered ? 'Mastered' : 'Streak'}</span>
+                      <span className="flex items-center gap-1">
+                        {Array.from({ length: scenario.masteryThreshold }).map((_, i) => {
+                          const lbl = streakLabels[i];
+                          return (
+                            <span
+                              key={i}
+                              className={`h-2 w-4 rounded-full ${
+                                lbl === 'protective' ? 'bg-green-500'
+                                  : lbl === 'neutral' ? 'bg-amber-400'
+                                  : 'bg-gray-200'
+                              }`}
+                            />
+                          );
+                        })}
+                      </span>
+                      <span>{Math.min(streak, scenario.masteryThreshold)} / {scenario.masteryThreshold}</span>
+                      {mastered && <Check className="w-3.5 h-3.5" />}
+                    </div>
+                    <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-80 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
+                      <div className="font-semibold mb-1">Mastery streak</div>
+                      <div className="text-gray-200 leading-snug">
+                        Build a streak of <span className="font-semibold">{scenario.masteryThreshold}</span> safe replies in a row
+                        (<span className="text-green-300">protective</span> or <span className="text-amber-300">neutral</span>) to
+                        unlock the next scenario. A <span className="text-red-300">risky</span> reply resets the streak to zero.
+                      </div>
+                      <div className="text-gray-300 mt-1.5">
+                        Each segment shows a reply in your streak — <span className="text-green-300">green</span> is protective,{' '}
+                        <span className="text-amber-300">amber</span> is neutral.
+                      </div>
+                    </div>
+                  </div>
+                ) : resilience.classified > 0 ? (
                   <div className="relative group">
                     <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 cursor-help">
                       Resilience: {resilience.score !== null ? `${Math.round(resilience.score * 100)}%` : '—'}
@@ -735,7 +831,7 @@ export default function ChatPage() {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
             </div>
 
@@ -929,16 +1025,30 @@ export default function ChatPage() {
               </div>
               <p className="text-lg font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
             </div>
-            <Button
-              onClick={handleNextScenario}
-              disabled={currentScenario === scenarios.length - 1}
-              variant="primary"
-            >
-              <span className="flex items-center">
-                Next
-                <ChevronRight className="w-5 h-5 ml-1" />
-              </span>
-            </Button>
+            <div className="relative group">
+              <Button
+                onClick={handleNextScenario}
+                disabled={currentScenario === scenarios.length - 1 || masteryLocked}
+                variant="primary"
+                className={showLockTip ? 'pointer-events-none' : undefined}
+              >
+                <span className="flex items-center">
+                  {showLockTip && <Lock className="w-4 h-4 mr-1.5" />}
+                  Next
+                  <ChevronRight className="w-5 h-5 ml-1" />
+                </span>
+              </Button>
+              {showLockTip && (
+                <div className="absolute z-50 hidden group-hover:block bottom-full right-0 mb-2 w-64 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
+                  <div className="font-semibold mb-1">Locked until mastery</div>
+                  <div className="text-gray-200 leading-snug">
+                    Reach a streak of <span className="font-semibold">{scenario.masteryThreshold}</span> safe replies in a row
+                    (<span className="text-green-300">protective</span> or <span className="text-amber-300">neutral</span>) to
+                    unlock the next scenario. You&apos;re at <span className="font-semibold">{streak}</span> / {scenario.masteryThreshold}.
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

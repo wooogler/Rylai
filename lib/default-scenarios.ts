@@ -75,6 +75,7 @@ export async function createDefaultScenarios(userId: string): Promise<void> {
       handle: scenario.handle,
       stage: scenario.stage,
       autoStage: scenario.autoStage,
+      masteryThreshold: 5,
       presetMessages: scenario.presetMessages,
       description: scenario.description,
       createdAt: now,

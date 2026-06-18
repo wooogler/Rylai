@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut } from "lucide-react";
+import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut, Check } from "lucide-react";
 import { useScenarioStore, type Scenario, type Message } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import PromptEditor, {
@@ -79,7 +79,17 @@ export default function AdminPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setEditingScenarios(JSON.parse(JSON.stringify(scenarios)));
+    // Fill defaults for newer per-scenario fields so older persisted scenarios (which may
+    // lack them) keep the inputs controlled (no undefined -> defined warning).
+    const cloned: Scenario[] = JSON.parse(JSON.stringify(scenarios));
+    setEditingScenarios(
+      cloned.map((s) => ({
+        ...s,
+        masteryEnabled: s.masteryEnabled ?? false,
+        masteryThreshold: s.masteryThreshold ?? 5,
+        persistMessages: s.persistMessages ?? false,
+      }))
+    );
     setEditingAge(age);
     setEditFeedback(toFeedbackEdit(feedbackConfig));
     setEditClassification(toClassificationEdit(classificationConfig));
@@ -150,6 +160,9 @@ export default function AdminPage() {
       description: "New scenario description",
       stage: 1,
       autoStage: true,
+      masteryEnabled: false,
+      masteryThreshold: 5,
+      persistMessages: false,
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
@@ -303,7 +316,8 @@ export default function AdminPage() {
         {/* Header */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-4">
-            <div>
+            {/* Account actions */}
+            <div className="flex gap-2">
               <Button
                 onClick={handleDeleteAccount}
                 variant="ghost"
@@ -313,8 +327,21 @@ export default function AdminPage() {
                 <Trash2 className="w-4 h-4 mr-1.5 inline" />
                 Delete Account
               </Button>
+              <Button
+                onClick={async () => {
+                  await logout();
+                  router.push("/");
+                }}
+                variant="ghost"
+                size="small"
+              >
+                <LogOut className="w-4 h-4 mr-1.5 inline" />
+                Logout
+              </Button>
             </div>
-            <div className="flex gap-2">
+
+            {/* Work actions: import/export · test · save */}
+            <div className="flex gap-2 items-center">
               <Button
                 onClick={handleExport}
                 variant="ghost"
@@ -338,37 +365,44 @@ export default function AdminPage() {
                 onChange={handleImport}
                 className="hidden"
               />
-              <Button
-                onClick={() => scenarios[0] && router.push(`/chat/${scenarios[0].slug}`)}
-                disabled={scenarios.length === 0}
-                variant="secondary"
-                size="small"
-              >
-                <MessageSquare className="w-4 h-4 mr-1.5 inline" />
-                Go to Chat
-              </Button>
-              {justSaved && (
-                <span className="self-center text-sm font-medium text-green-600">Saved</span>
-              )}
+              <div className="w-px h-5 bg-gray-200" aria-hidden />
+              <div className="relative group">
+                <Button
+                  onClick={() => scenarios[0] && router.push(`/chat/${scenarios[0].slug}`)}
+                  disabled={scenarios.length === 0 || hasChanges}
+                  variant="secondary"
+                  size="small"
+                  className={scenarios.length === 0 || hasChanges ? 'pointer-events-none' : undefined}
+                >
+                  <MessageSquare className="w-4 h-4 mr-1.5 inline" />
+                  Test Chat
+                </Button>
+                {(hasChanges || scenarios.length === 0) && (
+                  <div className="absolute z-50 hidden group-hover:block top-full right-0 mt-2 w-56 p-2.5 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl leading-snug">
+                    {hasChanges
+                      ? 'Save your changes first — Test Chat opens the saved version of your scenarios.'
+                      : 'Add a scenario before testing.'}
+                  </div>
+                )}
+              </div>
               <Button
                 onClick={handleSave}
                 disabled={!hasChanges}
                 variant="primary"
                 size="small"
+                className="inline-flex items-center justify-center min-w-[140px]"
               >
-                <Save className="w-4 h-4 mr-1.5 inline" />
-                Save Changes
-              </Button>
-              <Button
-                onClick={async () => {
-                  await logout();
-                  router.push("/");
-                }}
-                variant="ghost"
-                size="small"
-              >
-                <LogOut className="w-4 h-4 mr-1.5 inline" />
-                Logout
+                {justSaved ? (
+                  <>
+                    <Check className="w-4 h-4 mr-1.5" />
+                    Saved
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-1.5" />
+                    Save Changes
+                  </>
+                )}
               </Button>
             </div>
           </div>
@@ -550,6 +584,17 @@ export default function AdminPage() {
               </div>
 
               {/* Preset Messages */}
+              {scenario.persistMessages ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Preset Messages
+                  </label>
+                  <div className="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-3">
+                    Disabled — this scenario continues the previous scenario&apos;s conversation,
+                    so preset messages aren&apos;t used.
+                  </div>
+                </div>
+              ) : (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
                   Preset Messages
@@ -602,6 +647,72 @@ export default function AdminPage() {
                     <Plus className="w-4 h-4 mr-1" />
                     Add User Message
                   </button>
+                </div>
+              </div>
+              )}
+
+              {/* Scenario behavior toggles (bottom, side by side) */}
+              <div className="mt-6 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Mastery */}
+                <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                  <div className="flex items-start gap-3">
+                    <input
+                      id={`mastery-${scenario.id}`}
+                      type="checkbox"
+                      checked={!!scenario.masteryEnabled}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'masteryEnabled', e.target.checked)}
+                      className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer"
+                    />
+                    <label htmlFor={`mastery-${scenario.id}`} className="cursor-pointer">
+                      <span className="block text-sm font-medium text-gray-800">
+                        Require mastery to continue
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        When on, the learner can&apos;t advance to the next scenario until they reach
+                        a streak of consecutive safe (protective/neutral) replies. A risky reply
+                        resets the streak.
+                      </span>
+                    </label>
+                  </div>
+                  {scenario.masteryEnabled && (
+                    <div className="mt-3 ml-7 flex items-center gap-2">
+                      <label htmlFor={`mastery-threshold-${scenario.id}`} className="text-xs text-gray-600">
+                        Streak needed to advance
+                      </label>
+                      <input
+                        id={`mastery-threshold-${scenario.id}`}
+                        type="number"
+                        min={1}
+                        value={scenario.masteryThreshold ?? 5}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'masteryThreshold', Math.max(1, parseInt(e.target.value) || 1))}
+                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Persist messages */}
+                <div className={`bg-gray-50 rounded-lg p-3 border border-gray-200 ${scenarioIndex === 0 ? 'opacity-60' : ''}`}>
+                  <div className="flex items-start gap-3">
+                    <input
+                      id={`persist-${scenario.id}`}
+                      type="checkbox"
+                      checked={!!scenario.persistMessages}
+                      disabled={scenarioIndex === 0}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'persistMessages', e.target.checked)}
+                      className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer disabled:cursor-not-allowed"
+                    />
+                    <label htmlFor={`persist-${scenario.id}`} className={scenarioIndex === 0 ? 'cursor-not-allowed' : 'cursor-pointer'}>
+                      <span className="block text-sm font-medium text-gray-800">
+                        Continue the previous scenario&apos;s conversation
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        {scenarioIndex === 0
+                          ? "Not available for the first scenario — there's no previous conversation to continue."
+                          : "When on, this scenario starts with the messages and feedback carried over from the previous scenario. Preset messages are not used."}
+                      </span>
+                    </label>
+                  </div>
                 </div>
               </div>
             </div>

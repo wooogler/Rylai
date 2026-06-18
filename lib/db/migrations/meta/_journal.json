@@ -29,6 +29,13 @@
       "when": 1781807825894,
       "tag": "0003_eminent_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1781812850525,
+      "tag": "0004_yielding_valkyrie",
+      "breakpoints": true
     }
   ]
 }

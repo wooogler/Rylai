@@ -43,6 +43,9 @@ export interface Message {
   tacticRecognized?: boolean | null;
   protectiveStrategy?: boolean | null;
   rationale?: string | null;
+  // Carried over from a previous scenario (message-persistence mode). Display-only
+  // context: excluded from this scenario's streak/resilience and never re-saved.
+  carried?: boolean;
 }
 
 // Resilience score = proportion of protective vs vulnerable participant responses
@@ -56,6 +59,7 @@ export function computeResilience(messages: Message[]): {
 } {
   let protective = 0, neutral = 0, vulnerable = 0;
   for (const m of messages) {
+    if (m.carried) continue;
     if (m.sender !== 'user' || !m.classification) continue;
     if (m.classification === 'protective') protective++;
     else if (m.classification === 'vulnerable') vulnerable++;
@@ -69,6 +73,33 @@ export function computeResilience(messages: Message[]): {
     classified: protective + neutral + vulnerable,
     score: denom > 0 ? protective / denom : null,
   };
+}
+
+// Mastery streak = consecutive non-vulnerable (protective/neutral) participant replies.
+// A `vulnerable` reply resets the streak to 0. Carried-over (prior-scenario) and
+// unclassified replies are skipped.
+export function computeStreak(messages: Message[]): number {
+  let streak = 0;
+  for (const m of messages) {
+    if (m.carried) continue;
+    if (m.sender !== 'user' || !m.classification) continue;
+    if (m.classification === 'vulnerable') streak = 0;
+    else streak += 1;
+  }
+  return streak;
+}
+
+// Like computeStreak, but returns the labels of the current run (in order) so the UI can
+// color each streak segment by whether that reply was protective or neutral.
+export function computeStreakLabels(messages: Message[]): ResponseLabel[] {
+  const run: ResponseLabel[] = [];
+  for (const m of messages) {
+    if (m.carried) continue;
+    if (m.sender !== 'user' || !m.classification) continue;
+    if (m.classification === 'vulnerable') run.length = 0;
+    else run.push(m.classification);
+  }
+  return run;
 }
 
 export interface GroomingStage {
@@ -151,6 +182,9 @@ export interface Scenario {
   description: string;
   stage: number;
   autoStage: boolean;
+  masteryEnabled: boolean;
+  masteryThreshold: number;
+  persistMessages: boolean;
 }
 
 export interface ScenarioProgress {
@@ -453,8 +487,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       saveUserMessage: async (scenarioId: number, message: Message) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch('/api/messages', {
@@ -468,8 +502,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       saveUserFeedback: async (scenarioId: number, messageId: string, feedbackText: string) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch('/api/feedbacks', {
@@ -483,8 +517,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       saveResponseClassification: async (scenarioId, messageId, payload) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch('/api/messages', {
@@ -498,8 +532,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       savePreviewEvent: async (scenarioId, payload) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch('/api/preview-events', {
@@ -513,8 +547,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       loadUserMessages: async (scenarioId: number) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return [];
+        const { userId } = get();
+        if (!userId) return [];
 
         try {
           const response = await fetch(`/api/messages?userId=${userId}&scenarioId=${scenarioId}`);
@@ -535,8 +569,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       loadUserFeedbacks: async (scenarioId: number) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return new Map();
+        const { userId } = get();
+        if (!userId) return new Map();
 
         try {
           const response = await fetch(`/api/feedbacks?userId=${userId}&scenarioId=${scenarioId}`);
@@ -560,8 +594,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       recordScenarioVisit: async (scenarioId: number) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch('/api/scenario-progress', {
@@ -575,8 +609,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       loadScenarioProgress: async () => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return new Map();
+        const { userId } = get();
+        if (!userId) return new Map();
 
         try {
           const response = await fetch(`/api/scenario-progress?userId=${userId}`);
@@ -606,8 +640,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       resetScenarioProgress: async (scenarioId: number) => {
-        const { userId, userType } = get();
-        if (!userId || userType !== 'user') return;
+        const { userId } = get();
+        if (!userId) return;
 
         try {
           await fetch(`/api/scenario-progress?userId=${userId}&scenarioId=${scenarioId}`, {
