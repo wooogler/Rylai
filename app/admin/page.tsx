@@ -74,6 +74,7 @@ export default function AdminPage() {
     toClassificationEdit(null)
   );
   const [hasChanges, setHasChanges] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
   const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview'>('scenarios');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -191,7 +192,8 @@ export default function AdminPage() {
       }
 
       setHasChanges(false);
-      alert("Settings saved successfully!");
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
     } catch (error) {
       console.error("Error saving settings:", error);
       alert("Failed to save settings. Please try again.");
@@ -319,7 +321,7 @@ export default function AdminPage() {
                 size="small"
               >
                 <Download className="w-4 h-4 mr-1.5 inline" />
-                Export JSON
+                Export
               </Button>
               <Button
                 onClick={() => fileInputRef.current?.click()}
@@ -327,7 +329,7 @@ export default function AdminPage() {
                 size="small"
               >
                 <Upload className="w-4 h-4 mr-1.5 inline" />
-                Import JSON
+                Import
               </Button>
               <input
                 ref={fileInputRef}
@@ -345,6 +347,9 @@ export default function AdminPage() {
                 <MessageSquare className="w-4 h-4 mr-1.5 inline" />
                 Go to Chat
               </Button>
+              {justSaved && (
+                <span className="self-center text-sm font-medium text-green-600">Saved</span>
+              )}
               <Button
                 onClick={handleSave}
                 disabled={!hasChanges}
