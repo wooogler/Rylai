@@ -121,7 +121,9 @@ export default function ChatPage() {
   const recomputeCommentPositions = useCallback(() => {
     const gutter = gutterRef.current;
     if (!gutter) return;
-    const gutterTop = gutter.getBoundingClientRect().top;
+    const gutterRect = gutter.getBoundingClientRect();
+    const gutterTop = gutterRect.top;
+    const gutterHeight = gutterRect.height;
     const GAP = 8;
     let prevBottom = -Infinity;
     const next = new Map<string, number>();
@@ -132,12 +134,19 @@ export default function ChatPage() {
       if (!anchor) continue;
       const desired = anchor.getBoundingClientRect().top - gutterTop;
       const height = commentRefs.current.get(m.id)?.offsetHeight ?? 64;
-      const top = Math.max(desired, prevBottom + GAP);
+      let top = Math.max(desired, prevBottom + GAP);
+      // Keep the focused (expanded) card fully on-screen: if anchoring it would
+      // push its body past the bottom of the gutter (where it'd be clipped with no
+      // way to scroll), slide it up so the whole card is visible. It overlays the
+      // cards above, like a focused Google-Docs comment.
+      if (expandedCommentId === m.id && top + height > gutterHeight) {
+        top = Math.max(GAP, gutterHeight - height - GAP);
+      }
       next.set(m.id, top);
       prevBottom = top + height;
     }
     setCommentTops(next);
-  }, [messages, feedbackByMessageId, pendingFeedbackId]);
+  }, [messages, feedbackByMessageId, pendingFeedbackId, expandedCommentId]);
 
   useLayoutEffect(() => {
     recomputeCommentPositions();
@@ -394,6 +403,8 @@ export default function ChatPage() {
         age,
         autoStage: scenario.autoStage,
         stage: scenario.stage,
+        minStage: scenario.minStage,
+        maxStage: scenario.maxStage,
         stageOverride,
         predatorName: scenario.predatorName,
       }),
@@ -949,7 +960,11 @@ export default function ChatPage() {
                     else commentRefs.current.delete(message.id);
                   }}
                   className="absolute left-0 right-0"
-                  style={{ top: top ?? 0, visibility: top === undefined ? 'hidden' : 'visible' }}
+                  style={{
+                    top: top ?? 0,
+                    visibility: top === undefined ? 'hidden' : 'visible',
+                    zIndex: expandedCommentId === message.id ? 20 : undefined,
+                  }}
                 >
                   <FeedbackComment
                     name={teacherName}

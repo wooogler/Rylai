@@ -86,6 +86,14 @@ export const scenarios = sqliteTable(
     // When true, the VT model auto-predicts the stage each turn; when false, the
     // session is pinned to `stage`.
     autoStage: integer('auto_stage', { mode: 'boolean' }).notNull().default(true),
+    // Lower bound (1–6) on the grooming stage in auto mode. The VT server keeps its
+    // prediction and generated content at or above this floor, so the predator never
+    // drops below it. Default 1 = no floor (matches pre-feature behavior).
+    minStage: integer('min_stage').notNull().default(1),
+    // Upper bound (1–6) on the grooming stage in auto mode. The VT server clamps
+    // both its prediction and the generated content to this cap, so the predator
+    // never escalates past it. Default 6 = no cap (matches pre-feature behavior).
+    maxStage: integer('max_stage').notNull().default(6),
     // Mastery gate: when enabled, the learner must reach a streak of `masteryThreshold`
     // consecutive non-vulnerable (protective/neutral) replies before advancing.
     masteryEnabled: integer('mastery_enabled', { mode: 'boolean' }).notNull().default(false),

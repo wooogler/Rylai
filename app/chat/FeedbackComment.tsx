@@ -99,7 +99,7 @@ export default function FeedbackComment({
           </ReactMarkdown>
         </div>
       ) : (
-        <p className="mt-1.5 text-xs text-gray-600 line-clamp-2">{text}</p>
+        <p className={`mt-1.5 text-xs text-gray-600 ${typeMeta ? "line-clamp-1" : "line-clamp-2"}`}>{text}</p>
       )}
     </div>
   );

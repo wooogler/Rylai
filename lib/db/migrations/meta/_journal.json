@@ -36,6 +36,20 @@
       "when": 1781812850525,
       "tag": "0004_yielding_valkyrie",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1782402409755,
+      "tag": "0005_numerous_franklin_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1782420857145,
+      "tag": "0006_natural_skreet",
+      "breakpoints": true
     }
   ]
 }

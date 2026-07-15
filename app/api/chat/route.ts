@@ -48,6 +48,8 @@ interface SessionConfig {
   age: number | null;
   autoStage: boolean;
   stage: number;
+  minStage: number;
+  maxStage: number;
   predName: string | null;
 }
 
@@ -67,6 +69,8 @@ async function createVtSession(
       pred_name: config.predName,
       auto_stage: config.autoStage,
       stage: config.stage,
+      min_stage: config.minStage,
+      max_stage: config.maxStage,
     }),
   });
   if (!sessionRes.ok) {
@@ -80,7 +84,7 @@ async function vtTurn(
   sessionId: string,
   userMessage: string,
   stageOverride: number | null
-): Promise<{ ok: boolean; status: number; data?: { predator_response: string; stage: number; stage_label: string } }> {
+): Promise<{ ok: boolean; status: number; data?: { predator_response: string; stage: number; stage_label: string; stage_capped?: boolean } }> {
   const turnRes = await vtFetch(`${VT_CUSTOM_BASE_URL}/sessions/${sessionId}/turn`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -93,19 +97,23 @@ async function vtTurn(
     predator_response: string;
     stage: number;
     stage_label: string;
+    // true when the model's raw prediction exceeded max_stage and was clamped.
+    stage_capped?: boolean;
   };
   return { ok: true, status: turnRes.status, data };
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, userMessage, vtSessionId, stageOverride, age, autoStage, stage, predatorName } = await req.json();
+    const { conversationHistory, userMessage, vtSessionId, stageOverride, age, autoStage, stage, minStage, maxStage, predatorName } = await req.json();
     const history: ConversationMessage[] = conversationHistory ?? [];
     const turnStage: number | null = stageOverride ?? null;
     const sessionConfig: SessionConfig = {
       age: typeof age === 'number' ? age : null,
       autoStage: autoStage !== false, // default true
       stage: typeof stage === 'number' ? stage : 1,
+      minStage: typeof minStage === 'number' ? minStage : 1, // default 1 = no floor
+      maxStage: typeof maxStage === 'number' ? maxStage : 6, // default 6 = no cap
       predName: typeof predatorName === 'string' && predatorName.trim() ? predatorName.trim() : null,
     };
 
@@ -140,6 +148,7 @@ export async function POST(req: NextRequest) {
       vtSessionId: sessionId,
       stage: turn.data.stage,
       stageLabel: turn.data.stage_label,
+      stageCapped: turn.data.stage_capped ?? false,
     });
   } catch (error) {
     console.error('Chat API error:', error);

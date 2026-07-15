@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut, Check } from "lucide-react";
-import { useScenarioStore, type Scenario, type Message } from "../store/useScenarioStore";
+import { useScenarioStore, type Scenario, type Message, GROOMING_STAGES } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import PromptEditor, {
   type FeedbackEdit,
@@ -85,6 +85,8 @@ export default function AdminPage() {
     setEditingScenarios(
       cloned.map((s) => ({
         ...s,
+        minStage: s.minStage ?? 1,
+        maxStage: s.maxStage ?? 6,
         masteryEnabled: s.masteryEnabled ?? false,
         masteryThreshold: s.masteryThreshold ?? 5,
         persistMessages: s.persistMessages ?? false,
@@ -118,6 +120,15 @@ export default function AdminPage() {
       };
     }
 
+    setEditingScenarios(updated);
+    setHasChanges(true);
+  };
+
+  // Update several scenario fields at once (e.g. starting stage + max stage together,
+  // which must stay consistent — calling handleUpdateScenario twice would race on state).
+  const handleUpdateScenarioFields = (index: number, fields: Partial<Scenario>) => {
+    const updated = [...editingScenarios];
+    updated[index] = { ...updated[index], ...fields };
     setEditingScenarios(updated);
     setHasChanges(true);
   };
@@ -160,6 +171,8 @@ export default function AdminPage() {
       description: "New scenario description",
       stage: 1,
       autoStage: true,
+      minStage: 1,
+      maxStage: 6,
       masteryEnabled: false,
       masteryThreshold: 5,
       persistMessages: false,
@@ -250,10 +263,13 @@ export default function AdminPage() {
         // Support old formats (a bare scenarios array, or { scenarios, age }) as well as
         // the current format, which also carries the feedback / classification prompt
         // overrides. Prompt fields are only applied when present in the file.
+        // Older exports predate per-scenario fields like maxStage; backfill defaults.
+        const withDefaults = (list: Scenario[]) =>
+          list.map((s) => ({ ...s, minStage: s.minStage ?? 1, maxStage: s.maxStage ?? 6 }));
         if (Array.isArray(imported)) {
-          setEditingScenarios(imported);
+          setEditingScenarios(withDefaults(imported));
         } else if (imported.scenarios) {
-          setEditingScenarios(imported.scenarios);
+          setEditingScenarios(withDefaults(imported.scenarios));
           if ('age' in imported) {
             setEditingAge(typeof imported.age === 'number' ? imported.age : null);
           }
@@ -503,6 +519,7 @@ export default function AdminPage() {
               {/* Scenario Header */}
               <div className="flex justify-between items-start mb-6">
                 <div className="flex-1 space-y-4">
+                  {/* Identity: name + online stranger name */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -517,22 +534,27 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {scenario.autoStage ? 'Starting Stage' : 'Fixed Stage'}
+                        Online Stranger Name
                       </label>
-                      <select
-                        value={scenario.stage}
-                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'stage', parseInt(e.target.value))}
+                      <input
+                        type="text"
+                        value={scenario.predatorName}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'predatorName', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      >
-                        <option value={0}>Stage 0: Free Interaction</option>
-                        <option value={1}>Stage 1: Friendship Forming</option>
-                        <option value={2}>Stage 2: Relationship Forming</option>
-                        <option value={3}>Stage 3: Risk Assessment</option>
-                        <option value={4}>Stage 4: Exclusivity</option>
-                        <option value={5}>Stage 5: Sexual</option>
-                        <option value={6}>Stage 6: Conclusion</option>
-                      </select>
+                      />
                     </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Description
+                    </label>
+                    <input
+                      type="text"
+                      value={scenario.description}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'description', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
                   </div>
 
                   {/* Auto Stage toggle */}
@@ -550,35 +572,82 @@ export default function AdminPage() {
                       </span>
                       <span className="block text-xs text-gray-500">
                         When on, the model changes the stage as the conversation develops and
-                        responds accordingly — it can move <span className="font-medium">up or down</span> from
-                        the starting stage above. When off, the conversation stays fixed at that stage.
+                        responds accordingly — it can move <span className="font-medium">up or down</span> between
+                        the minimum and maximum stages below. When off, the conversation stays
+                        fixed at the chosen stage.
                       </span>
                     </label>
                   </div>
 
+                  {/* Stage controls: starting stage, plus min/max bounds in auto mode */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <input
-                      type="text"
-                      value={scenario.description}
-                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'description', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Online Stranger Name
-                    </label>
-                    <input
-                      type="text"
-                      value={scenario.predatorName}
-                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'predatorName', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Handle: {scenario.handle}</p>
+                    <div className={`grid ${scenario.autoStage ? 'grid-cols-3' : 'grid-cols-2'} gap-4`}>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                          {scenario.autoStage ? 'Starting Stage' : 'Fixed Stage'}
+                        </label>
+                        <select
+                          value={scenario.stage}
+                          onChange={(e) => {
+                            const newStage = parseInt(e.target.value);
+                            // Keep bounds consistent: minStage ≤ startingStage ≤ maxStage.
+                            const minStage = Math.min(scenario.minStage ?? 1, newStage);
+                            const maxStage = Math.max(scenario.maxStage ?? 6, newStage);
+                            handleUpdateScenarioFields(scenarioIndex, { stage: newStage, minStage, maxStage });
+                          }}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                          <option value={1}>Stage 1: Friendship Forming</option>
+                          <option value={2}>Stage 2: Relationship Forming</option>
+                          <option value={3}>Stage 3: Risk Assessment</option>
+                          <option value={4}>Stage 4: Exclusivity</option>
+                          <option value={5}>Stage 5: Sexual</option>
+                          <option value={6}>Stage 6: Conclusion</option>
+                        </select>
+                      </div>
+                      {scenario.autoStage && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Minimum Stage
+                          </label>
+                          <select
+                            value={scenario.minStage ?? 1}
+                            onChange={(e) => handleUpdateScenarioFields(scenarioIndex, { minStage: parseInt(e.target.value) })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            {GROOMING_STAGES.filter((g) => g.stage <= scenario.stage).map((g) => (
+                              <option key={g.stage} value={g.stage}>
+                                Stage {g.stage}: {g.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      {scenario.autoStage && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Maximum Stage
+                          </label>
+                          <select
+                            value={scenario.maxStage ?? 6}
+                            onChange={(e) => handleUpdateScenarioFields(scenarioIndex, { maxStage: parseInt(e.target.value) })}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          >
+                            {GROOMING_STAGES.filter((g) => g.stage >= scenario.stage).map((g) => (
+                              <option key={g.stage} value={g.stage}>
+                                Stage {g.stage}: {g.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                    </div>
+                    {scenario.autoStage && (
+                      <p className="text-xs text-gray-500 mt-1.5">
+                        In auto mode the online stranger moves only between the minimum and maximum
+                        stages, beginning at the starting stage.
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

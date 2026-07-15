@@ -111,12 +111,6 @@ export interface GroomingStage {
 
 export const GROOMING_STAGES: GroomingStage[] = [
   {
-    stage: 0,
-    name: "Free Interaction",
-    description: "No specific stage constraints. The conversation can explore any grooming tactics naturally.",
-    goal: "Interact freely without stage-specific objectives. Respond naturally to the conversation flow."
-  },
-  {
     stage: 1,
     name: "Friendship Forming",
     description: "The predator gets to know the target, asking for pictures to verify identity and for profile or contact information.",
@@ -182,6 +176,12 @@ export interface Scenario {
   description: string;
   stage: number;
   autoStage: boolean;
+  // Lower bound (1–6) on the grooming stage in auto mode; the predator never
+  // drops below it. 1 = no floor.
+  minStage: number;
+  // Upper bound (1–6) on the grooming stage in auto mode; the predator never
+  // escalates past it. 6 = no cap.
+  maxStage: number;
   masteryEnabled: boolean;
   masteryThreshold: number;
   persistMessages: boolean;
@@ -444,7 +444,9 @@ export const useScenarioStore = create<ScenarioStore>()(
             // chat reseeds from the new stage instead of showing the old predicted one.
             const stageChanged =
               (updates.stage !== undefined && updates.stage !== prev?.stage) ||
-              (updates.autoStage !== undefined && updates.autoStage !== prev?.autoStage);
+              (updates.autoStage !== undefined && updates.autoStage !== prev?.autoStage) ||
+              (updates.minStage !== undefined && updates.minStage !== prev?.minStage) ||
+              (updates.maxStage !== undefined && updates.maxStage !== prev?.maxStage);
             const vtSessions = { ...state.vtSessions };
             if (stageChanged) delete vtSessions[id];
             return {

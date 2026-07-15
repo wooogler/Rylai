@@ -7,7 +7,7 @@ import { eq, and } from 'drizzle-orm';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage, masteryEnabled, masteryThreshold, persistMessages } = body;
+    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage, minStage, maxStage, masteryEnabled, masteryThreshold, persistMessages } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
         description,
         stage,
         autoStage: autoStage ?? true,
+        minStage: typeof minStage === 'number' ? minStage : 1,
+        maxStage: typeof maxStage === 'number' ? maxStage : 6,
         masteryEnabled: masteryEnabled ?? false,
         masteryThreshold: typeof masteryThreshold === 'number' ? masteryThreshold : 5,
         persistMessages: persistMessages ?? false,
@@ -71,6 +73,8 @@ export async function PATCH(request: NextRequest) {
     if (updates.description !== undefined) dbUpdates.description = updates.description;
     if (updates.stage !== undefined) dbUpdates.stage = updates.stage;
     if (updates.autoStage !== undefined) dbUpdates.autoStage = updates.autoStage;
+    if (updates.minStage !== undefined) dbUpdates.minStage = updates.minStage;
+    if (updates.maxStage !== undefined) dbUpdates.maxStage = updates.maxStage;
     if (updates.masteryEnabled !== undefined) dbUpdates.masteryEnabled = updates.masteryEnabled;
     if (updates.masteryThreshold !== undefined) dbUpdates.masteryThreshold = updates.masteryThreshold;
     if (updates.persistMessages !== undefined) dbUpdates.persistMessages = updates.persistMessages;

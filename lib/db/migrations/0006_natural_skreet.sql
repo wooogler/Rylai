@@ -1,0 +1,1 @@
+ALTER TABLE `scenarios` ADD `min_stage` integer DEFAULT 1 NOT NULL;
