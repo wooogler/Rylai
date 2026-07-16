@@ -14,6 +14,7 @@ import PromptEditor, {
   fromClassificationEdit,
 } from "./PromptEditor";
 import PromptPreview from "./PromptPreview";
+import AccessCodes from "./AccessCodes";
 import Markdown from "@/components/Markdown";
 import { DEFAULT_WELCOME_MARKDOWN } from "@/lib/welcome-content";
 
@@ -46,6 +47,7 @@ function generateHandle(predatorName: string): string {
 export default function AdminPage() {
   const router = useRouter();
   const {
+    userId,
     scenarios,
     age,
     feedbackConfig,
@@ -84,7 +86,7 @@ export default function AdminPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview'>('scenarios');
+  const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview' | 'access'>('scenarios');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -497,6 +499,7 @@ export default function AdminPage() {
             { key: 'scenarios', label: 'Scenarios' },
             { key: 'prompts', label: 'Prompts' },
             { key: 'preview', label: 'Preview & Test' },
+            { key: 'access', label: 'Access Codes' },
           ] as const).map((t) => (
             <button
               key={t.key}
@@ -550,6 +553,13 @@ export default function AdminPage() {
               feedback={editFeedback}
               classification={editClassification}
             />
+          </div>
+        )}
+
+        {/* Access Codes tab */}
+        {activeTab === 'access' && userId && (
+          <div className="mb-8">
+            <AccessCodes educatorId={userId} />
           </div>
         )}
 

@@ -16,6 +16,7 @@ export default function Home() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passcode, setPasscode] = useState("");
+  const [accessCode, setAccessCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -60,7 +61,12 @@ export default function Home() {
       const body =
         mode === "login"
           ? { username: username.trim(), password }
-          : { username: username.trim(), password, passcode: passcode.trim() || undefined };
+          : {
+              username: username.trim(),
+              password,
+              passcode: passcode.trim() || undefined,
+              accessCode: accessCode.trim() || undefined,
+            };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -152,6 +158,26 @@ export default function Home() {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
+
+            {mode === "signup" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Access code
+                </label>
+                <input
+                  type="text"
+                  value={accessCode}
+                  onChange={(e) => setAccessCode(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                  placeholder="Enter the code your researcher gave you"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Participants need an access code to sign up. (Educators can leave this blank and
+                  use the passcode below.)
+                </p>
+              </div>
+            )}
 
             {mode === "signup" && (
               <div>

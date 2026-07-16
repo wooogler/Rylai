@@ -128,6 +128,11 @@ export const scenarios = sqliteTable(
     // Educator-authored splash-screen content (Markdown) shown as a scrollable modal over
     // the chat when the learner first enters this scenario. Null = no splash. L123–137.
     splashMarkdown: text('splash_markdown'),
+    // 6.1b assessment-only chatbot: a predator-only mode for the post-training assessment
+    // — no stage UI, no feedback agent, no mastery gate, natural progression, ending after
+    // `maxMessages` messages (0 = no limit). (Evaluation Plan §6.1b, L219–226.)
+    assessmentMode: integer('assessment_mode', { mode: 'boolean' }).notNull().default(false),
+    maxMessages: integer('max_messages').notNull().default(0),
     presetMessages: text('preset_messages', { mode: 'json' })
       .notNull()
       .$type<
@@ -296,9 +301,39 @@ export const previewEvents = sqliteTable(
   })
 );
 
+// Access codes — researcher-issued, single-use participant signup gate (Evaluation Plan §6,
+// L101–102). Each code is created by an educator, optionally labeled with a participant id
+// (e.g. "p1-rylai"), and consumed by the learner who signs up with it.
+export const accessCodes = sqliteTable(
+  'access_codes',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    code: text('code').notNull(),
+    educatorId: text('educator_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    participantLabel: text('participant_label').notNull().default(''),
+    // Set once the code is redeemed at signup; null while unused.
+    usedByUserId: text('used_by_user_id').references(() => users.id, { onDelete: 'set null' }),
+    usedAt: integer('used_at', { mode: 'timestamp_ms' }),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    codeIdx: uniqueIndex('access_codes_code_idx').on(table.code),
+    educatorIdx: index('access_codes_educator_idx').on(table.educatorId),
+  })
+);
+
 // Type exports
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+export type AccessCode = typeof accessCodes.$inferSelect;
+export type InsertAccessCode = typeof accessCodes.$inferInsert;
 
 export type Scenario = typeof scenarios.$inferSelect;
 export type InsertScenario = typeof scenarios.$inferInsert;

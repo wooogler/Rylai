@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { users } from '@/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { users, accessCodes } from '@/lib/db/schema';
+import { and, eq, isNull } from 'drizzle-orm';
 import { hashPassword, validatePassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 import { signupSchema } from '@/lib/validation/auth';
@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const { username, password, passcode } = parsed.data;
+    const { username, password, passcode, accessCode } = parsed.data;
 
     // Determine role from the optional educator passcode.
     let userType: 'admin' | 'user' = 'user';
@@ -27,6 +27,24 @@ export async function POST(request: NextRequest) {
       } else {
         return NextResponse.json({ error: 'Invalid educator passcode' }, { status: 403 });
       }
+    }
+
+    // Learners must present a valid, unused participant access code (§6, L101–102). Look it
+    // up now; it is consumed (marked used) only after the account is created below.
+    let redeemCode: { id: string } | null = null;
+    if (userType === 'user') {
+      const code = (accessCode ?? '').trim();
+      if (!code) {
+        return NextResponse.json({ error: 'An access code is required to sign up' }, { status: 400 });
+      }
+      const found = await db.query.accessCodes.findFirst({
+        where: and(eq(accessCodes.code, code), isNull(accessCodes.usedByUserId)),
+        columns: { id: true },
+      });
+      if (!found) {
+        return NextResponse.json({ error: 'Invalid or already-used access code' }, { status: 403 });
+      }
+      redeemCode = found;
     }
 
     const pw = validatePassword(password);
@@ -57,6 +75,13 @@ export async function POST(request: NextRequest) {
 
     if (userType === 'admin') {
       await createDefaultScenarios(userId);
+    }
+
+    // Consume the access code now that the learner account exists.
+    if (redeemCode) {
+      await db.update(accessCodes)
+        .set({ usedByUserId: userId, usedAt: new Date() })
+        .where(eq(accessCodes.id, redeemCode.id));
     }
 
     await createSession(userId);
