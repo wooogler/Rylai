@@ -22,7 +22,8 @@ export async function POST(req: NextRequest) {
       columns: {
         id: true,
         username: true,
-        age: true
+        age: true,
+        welcomeMarkdown: true
       }
     });
 
@@ -55,7 +56,7 @@ function sanitizeConfig<T>(value: unknown): T | null | undefined {
 // classification prompt overrides. Only the fields present in the body are changed.
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, age, feedbackConfig, classificationConfig } = await req.json();
+    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown } = await req.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -66,6 +67,7 @@ export async function PATCH(req: NextRequest) {
 
     const updates: Partial<typeof users.$inferInsert> = {};
     if (age !== undefined) updates.age = age;
+    if (welcomeMarkdown !== undefined) updates.welcomeMarkdown = welcomeMarkdown;
 
     const fc = sanitizeConfig<FeedbackConfig>(feedbackConfig);
     if (fc !== undefined) updates.feedbackConfig = fc;

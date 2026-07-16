@@ -6,6 +6,7 @@ import { hashPassword, validatePassword } from '@/lib/auth/password';
 import { createSession } from '@/lib/auth/session';
 import { signupSchema } from '@/lib/validation/auth';
 import { createDefaultScenarios } from '@/lib/default-scenarios';
+import { DEFAULT_WELCOME_MARKDOWN } from '@/lib/welcome-content';
 
 export async function POST(request: NextRequest) {
   try {
@@ -48,6 +49,8 @@ export async function POST(request: NextRequest) {
       username,
       passwordHash,
       userType,
+      // Seed the default Welcome-screen content for new educators (learners have none).
+      welcomeMarkdown: userType === 'admin' ? DEFAULT_WELCOME_MARKDOWN : null,
       createdAt: new Date(),
       lastLoginAt: new Date(),
     });

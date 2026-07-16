@@ -14,6 +14,8 @@ import PromptEditor, {
   fromClassificationEdit,
 } from "./PromptEditor";
 import PromptPreview from "./PromptPreview";
+import Markdown from "@/components/Markdown";
+import { DEFAULT_WELCOME_MARKDOWN } from "@/lib/welcome-content";
 
 function generateSlug(name: string): string {
   return name
@@ -48,6 +50,7 @@ export default function AdminPage() {
     age,
     feedbackConfig,
     classificationConfig,
+    welcomeMarkdown,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -59,6 +62,7 @@ export default function AdminPage() {
     restoreDefaultScenarios,
     setAge,
     saveAdminPrompts,
+    saveWelcomeMarkdown,
     deleteAccount
   } = useScenarioStore();
 
@@ -74,6 +78,8 @@ export default function AdminPage() {
   const [editClassification, setEditClassification] = useState<ClassificationEdit>(() =>
     toClassificationEdit(null)
   );
+  const [editWelcome, setEditWelcome] = useState<string>('');
+  const [showWelcomePreview, setShowWelcomePreview] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -100,7 +106,8 @@ export default function AdminPage() {
     setEditingAge(age);
     setEditFeedback(toFeedbackEdit(feedbackConfig));
     setEditClassification(toClassificationEdit(classificationConfig));
-  }, [scenarios, age, feedbackConfig, classificationConfig]);
+    setEditWelcome(welcomeMarkdown ?? '');
+  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown]);
 
   const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
@@ -231,6 +238,9 @@ export default function AdminPage() {
         fromClassificationEdit(editClassification)
       );
 
+      // Save the Welcome-screen content (empty = no welcome screen for learners)
+      await saveWelcomeMarkdown(editWelcome);
+
       // Update existing scenarios
       for (const scenario of editingScenarios) {
         if (scenarios.find(s => s.id === scenario.id)) {
@@ -267,6 +277,7 @@ export default function AdminPage() {
       age: editingAge,
       feedbackConfig: fromFeedbackEdit(editFeedback),
       classificationConfig: fromClassificationEdit(editClassification),
+      welcomeMarkdown: editWelcome,
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -317,6 +328,9 @@ export default function AdminPage() {
           }
           if ('classificationConfig' in imported) {
             setEditClassification(toClassificationEdit(imported.classificationConfig ?? null));
+          }
+          if ('welcomeMarkdown' in imported) {
+            setEditWelcome(typeof imported.welcomeMarkdown === 'string' ? imported.welcomeMarkdown : '');
           }
         }
 
@@ -535,6 +549,50 @@ export default function AdminPage() {
         {/* Scenario Settings tab */}
         {activeTab === 'scenarios' && (
         <div>
+          {/* Welcome screen (educator-wide, shown before the first scenario) */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <h3 className="text-xl font-semibold">Welcome screen</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Shown to learners after they pick you, before the first scenario (Markdown). Leave empty to skip it.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowWelcomePreview((v) => !v)}
+                  className="text-sm font-medium text-purple-600 hover:text-purple-800"
+                >
+                  {showWelcomePreview ? 'Edit' : 'Preview'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditWelcome(DEFAULT_WELCOME_MARKDOWN); setHasChanges(true); }}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                  title="Reset to the default welcome content"
+                >
+                  Reset to default
+                </button>
+              </div>
+            </div>
+            {showWelcomePreview ? (
+              <div className="mt-3 min-h-[8rem] rounded-lg border border-gray-200 bg-gray-50 p-4">
+                {editWelcome.trim()
+                  ? <Markdown>{editWelcome}</Markdown>
+                  : <p className="text-sm italic text-gray-400">No welcome content — learners will go straight to the first scenario.</p>}
+              </div>
+            ) : (
+              <textarea
+                value={editWelcome}
+                onChange={(e) => { setEditWelcome(e.target.value); setHasChanges(true); }}
+                rows={10}
+                placeholder="Welcome content (Markdown)…"
+                className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            )}
+          </div>
+
           {/* Scenarios List */}
           <div className="space-y-6">
           {editingScenarios.map((scenario, scenarioIndex) => (

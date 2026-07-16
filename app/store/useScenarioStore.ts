@@ -214,6 +214,7 @@ export interface AuthUser {
   age?: number | null;
   feedbackConfig?: FeedbackConfig | null;
   classificationConfig?: ClassificationConfig | null;
+  welcomeMarkdown?: string | null;
 }
 
 interface VtSessionState {
@@ -235,6 +236,8 @@ interface ScenarioStore {
   // system defaults). Loaded for admins from /api/auth/me; not persisted to storage.
   feedbackConfig: FeedbackConfig | null;
   classificationConfig: ClassificationConfig | null;
+  // Admin's own Welcome-screen markdown (null = none). Loaded from /api/auth/me.
+  welcomeMarkdown: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -251,6 +254,7 @@ interface ScenarioStore {
     feedbackConfig: FeedbackConfig | null,
     classificationConfig: ClassificationConfig | null
   ) => Promise<void>;
+  saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -289,6 +293,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       age: null,
       feedbackConfig: null,
       classificationConfig: null,
+      welcomeMarkdown: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -311,6 +316,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 age: user.age ?? null,
                 feedbackConfig: user.feedbackConfig ?? null,
                 classificationConfig: user.classificationConfig ?? null,
+                welcomeMarkdown: user.welcomeMarkdown ?? null,
               }
             : {}),
         });
@@ -408,6 +414,24 @@ export const useScenarioStore = create<ScenarioStore>()(
           });
         } catch (error) {
           console.error('Error updating prompts:', error);
+        }
+      },
+
+      // Persist the educator's Welcome-screen markdown (empty string = no welcome screen).
+      saveWelcomeMarkdown: async (welcomeMarkdown) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        set({ welcomeMarkdown });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, welcomeMarkdown }),
+          });
+        } catch (error) {
+          console.error('Error updating welcome content:', error);
         }
       },
 

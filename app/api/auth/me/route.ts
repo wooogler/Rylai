@@ -21,6 +21,7 @@ export async function GET() {
         age: true,
         feedbackConfig: true,
         classificationConfig: true,
+        welcomeMarkdown: true,
       },
     });
 

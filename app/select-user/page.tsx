@@ -85,7 +85,10 @@ export default function SelectUserPage() {
         setIsLoading(false);
         return;
       }
-      router.push(`/chat/${scenarios[0].slug}`);
+      // Show the educator's Welcome screen first if they have one; otherwise go straight
+      // to the first scenario.
+      const hasWelcome = !!(adminUser.welcomeMarkdown && adminUser.welcomeMarkdown.trim());
+      router.push(hasWelcome ? "/welcome" : `/chat/${scenarios[0].slug}`);
     } catch (err) {
       console.error("Error selecting educator:", err);
       setError(true);
