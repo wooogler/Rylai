@@ -1,8 +1,10 @@
 "use client";
 
+import { useState, type ComponentProps } from "react";
 import Avatar from "./Avatar";
 import ReactMarkdown from "react-markdown";
 import { CLASSIFICATION_META, RESPONSE_TYPE_META, type ResponseLabel, type ResponseType } from "../store/useScenarioStore";
+import { parseFeedback, feedbackSummary } from "@/lib/feedback-format";
 
 interface FeedbackCommentProps {
   name: string;
@@ -17,8 +19,63 @@ interface FeedbackCommentProps {
   subtitle?: string;
 }
 
+const MD_COMPONENTS = {
+  p: (props: ComponentProps<"p">) => <p className="mb-2 last:mb-0" {...props} />,
+  ul: (props: ComponentProps<"ul">) => <ul className="list-disc list-inside mb-2 space-y-0.5" {...props} />,
+  ol: (props: ComponentProps<"ol">) => <ol className="list-decimal list-inside mb-2 space-y-0.5" {...props} />,
+  li: (props: ComponentProps<"li">) => <li {...props} />,
+  strong: (props: ComponentProps<"strong">) => <strong className="font-semibold text-gray-900" {...props} />,
+};
+
+function Body({ text }: { text: string }) {
+  const parsed = parseFeedback(text);
+  const [tab, setTab] = useState(0);
+
+  if (parsed.kind === "legacy") {
+    return <ReactMarkdown components={MD_COMPONENTS}>{parsed.text}</ReactMarkdown>;
+  }
+
+  if (parsed.parts.length === 0) return null;
+
+  if (parsed.mode === "tabs") {
+    const active = parsed.parts[Math.min(tab, parsed.parts.length - 1)];
+    return (
+      <div>
+        <div className="flex flex-wrap gap-1 mb-2">
+          {parsed.parts.map((p, i) => (
+            <button
+              key={p.key}
+              onClick={(e) => { e.stopPropagation(); setTab(i); }}
+              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
+                i === tab ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+        <ReactMarkdown components={MD_COMPONENTS}>{active.text}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  // Collective: bold label, then the part text, stacked.
+  return (
+    <div className="space-y-2">
+      {parsed.parts.map((p) => (
+        <div key={p.key}>
+          <span className="font-semibold text-gray-900">{p.label}:</span>{" "}
+          <span className="inline">
+            <ReactMarkdown components={{ ...MD_COMPONENTS, p: (props) => <span {...props} /> }}>{p.text}</ReactMarkdown>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // A Google Docs-style comment card, anchored next to the message it evaluates.
-// Collapsed: author + classification + first ~2 lines. Click to expand/collapse.
+// Collapsed: author + classification + a short summary. Click to expand/collapse.
 export default function FeedbackComment({
   name,
   avatarSeed,
@@ -86,20 +143,10 @@ export default function FeedbackComment({
         </div>
       ) : expanded ? (
         <div className="mt-2 text-xs text-gray-800 leading-relaxed max-h-60 overflow-y-auto">
-          <ReactMarkdown
-            components={{
-              p: (props) => <p className="mb-2 last:mb-0" {...props} />,
-              ul: (props) => <ul className="list-disc list-inside mb-2 space-y-0.5" {...props} />,
-              ol: (props) => <ol className="list-decimal list-inside mb-2 space-y-0.5" {...props} />,
-              li: (props) => <li {...props} />,
-              strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
-            }}
-          >
-            {text}
-          </ReactMarkdown>
+          <Body text={text} />
         </div>
       ) : (
-        <p className={`mt-1.5 text-xs text-gray-600 ${typeMeta ? "line-clamp-1" : "line-clamp-2"}`}>{text}</p>
+        <p className={`mt-1.5 text-xs text-gray-600 ${typeMeta ? "line-clamp-1" : "line-clamp-2"}`}>{feedbackSummary(text)}</p>
       )}
     </div>
   );

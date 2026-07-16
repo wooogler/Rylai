@@ -20,7 +20,9 @@ import {
 } from "./PromptEditor";
 
 interface TestResult {
-  feedback: string;
+  yourResponse: string;
+  stageIntent: string;
+  nextMove: string;
   classification: ResponseLabel;
   responseType: ResponseType;
   tacticRecognized: boolean;
@@ -281,21 +283,30 @@ export default function PromptPreview({
                 </span>
               </div>
 
-              {/* Teen-facing feedback */}
+              {/* Teen-facing feedback (three parts) */}
               <div>
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-1">
                   Feedback (shown to the learner)
                 </p>
-                <div className="text-sm text-gray-800 leading-relaxed border border-gray-200 rounded-lg p-3">
-                  <ReactMarkdown
-                    components={{
-                      p: (props) => <p className="mb-2 last:mb-0" {...props} />,
-                      ul: (props) => <ul className="list-disc list-inside mb-2 space-y-0.5" {...props} />,
-                      strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
-                    }}
-                  >
-                    {result.feedback}
-                  </ReactMarkdown>
+                <div className="text-sm text-gray-800 leading-relaxed border border-gray-200 rounded-lg p-3 space-y-3">
+                  {([
+                    ["Your Response", result.yourResponse],
+                    ["Stage & Intention", result.stageIntent],
+                    ["How to Respond Next", result.nextMove],
+                  ] as const).map(([label, body]) => (
+                    <div key={label}>
+                      <p className="text-xs font-semibold text-gray-700 mb-0.5">{label}</p>
+                      <ReactMarkdown
+                        components={{
+                          p: (props) => <p className="mb-2 last:mb-0" {...props} />,
+                          ul: (props) => <ul className="list-disc list-inside mb-2 space-y-0.5" {...props} />,
+                          strong: (props) => <strong className="font-semibold text-gray-900" {...props} />,
+                        }}
+                      >
+                        {body || "—"}
+                      </ReactMarkdown>
+                    </div>
+                  ))}
                 </div>
               </div>
 

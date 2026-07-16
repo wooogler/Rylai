@@ -468,6 +468,12 @@ export default function ChatPage() {
           timestamp: new Date(),
         };
         const conversationWithReply = [...conversationWithUser, autoReply];
+
+        // Keep the typing indicator up for a short, human-like beat before the reply
+        // appears, scaled to reply length, so it doesn't feel like an instant bot (§6.2, L239).
+        const delayMs = Math.min(3500, Math.max(1200, 900 + (data.reply?.length ?? 0) * 25));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+
         setMessages(conversationWithReply);
 
         // Save AI reply for learners

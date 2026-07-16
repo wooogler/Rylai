@@ -2,6 +2,7 @@ import { OpenAI } from 'openai';
 import { NextRequest, NextResponse } from 'next/server';
 import { buildFeedbackAndClassificationInput } from '@/lib/feedback-prompts';
 import { runFeedbackModel } from '@/lib/feedback-runner';
+import { packFeedback } from '@/lib/feedback-format';
 import { db } from '@/lib/db/client';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
@@ -46,7 +47,21 @@ export async function POST(req: NextRequest) {
     );
 
     const result = await runFeedbackModel(openai, input);
-    return NextResponse.json(result);
+
+    // Pack the three feedback parts into the wire string, honoring the educator's part
+    // toggles + display mode. Classification fields are returned alongside as before.
+    const feedback = packFeedback(
+      { yourResponse: result.yourResponse, stageIntent: result.stageIntent, nextMove: result.nextMove },
+      feedbackConfig
+    );
+    return NextResponse.json({
+      feedback,
+      classification: result.classification,
+      responseType: result.responseType,
+      tacticRecognized: result.tacticRecognized,
+      protectiveStrategy: result.protectiveStrategy,
+      rationale: result.rationale,
+    });
   } catch (error) {
     console.error('Feedback API error:', error);
     return NextResponse.json(

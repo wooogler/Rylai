@@ -6,7 +6,10 @@ import { FEEDBACK_MODEL } from './ai-models';
 import { RESPONSE_TYPES, type ResponseType } from './db/schema';
 
 export interface FeedbackResult {
-  feedback: string;
+  // Three teen-facing feedback parts (§6.2, L234–237).
+  yourResponse: string;
+  stageIntent: string;
+  nextMove: string;
   classification: 'protective' | 'neutral' | 'vulnerable';
   responseType: ResponseType;
   tacticRecognized: boolean;
@@ -18,7 +21,9 @@ export const RESULT_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
-    feedback: { type: 'string' },
+    yourResponse: { type: 'string' },
+    stageIntent: { type: 'string' },
+    nextMove: { type: 'string' },
     classification: { type: 'string', enum: ['protective', 'neutral', 'vulnerable'] },
     responseType: { type: 'string', enum: [...RESPONSE_TYPES] },
     tacticRecognized: { type: 'boolean' },
@@ -26,7 +31,9 @@ export const RESULT_SCHEMA = {
     rationale: { type: 'string' },
   },
   required: [
-    'feedback',
+    'yourResponse',
+    'stageIntent',
+    'nextMove',
     'classification',
     'responseType',
     'tacticRecognized',
@@ -58,9 +65,11 @@ export async function runFeedbackModel(openai: OpenAI, input: string): Promise<F
   try {
     return JSON.parse(raw) as FeedbackResult;
   } catch {
-    // Fallback: if structured parsing fails, surface the text as feedback only.
+    // Fallback: if structured parsing fails, surface the raw text as the first part only.
     return {
-      feedback: raw,
+      yourResponse: raw,
+      stageIntent: '',
+      nextMove: '',
       classification: 'neutral',
       responseType: 'none',
       tacticRecognized: false,

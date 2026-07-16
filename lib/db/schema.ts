@@ -10,6 +10,11 @@ export interface FeedbackConfig {
   persona?: string; // global → FEEDBACK_BASE
   instruction?: string; // global → FEEDBACK_INSTRUCTION
   stages?: Partial<Record<StageKey, { description?: string; goal?: string }>>;
+  // Feedback display (§6.2, L238): which of the three parts to show, and whether to present
+  // them as one collective message or separate tabs. A part is shown unless set to false;
+  // displayMode defaults to 'collective'.
+  parts?: { yourResponse?: boolean; stageIntent?: boolean; nextMove?: boolean };
+  displayMode?: 'collective' | 'tabs';
 }
 
 export interface ClassificationConfig {

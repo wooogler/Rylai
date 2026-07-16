@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { RotateCcw } from "lucide-react";
 import type { FeedbackConfig, ClassificationConfig, StageKey } from "@/lib/db/schema";
+import { FEEDBACK_PART_KEYS, FEEDBACK_PART_LABELS } from "@/lib/feedback-format";
 import { DEFAULT_FEEDBACK_CONFIG } from "@/lib/feedback-prompts";
 import { DEFAULT_CLASSIFICATION_CONFIG, STAGE_KEYS } from "@/lib/classification-criteria";
 import { GROOMING_STAGES, AGE_BRACKETS } from "../store/useScenarioStore";
@@ -15,6 +16,9 @@ export type FeedbackEdit = {
   persona: string;
   instruction: string;
   stages: Record<StageKey, { description: string; goal: string }>;
+  // Feedback display (§6.2): which of the three parts to show, and collective vs tabs.
+  parts: { yourResponse: boolean; stageIntent: boolean; nextMove: boolean };
+  displayMode: 'collective' | 'tabs';
 };
 export type ClassificationEdit = {
   labelDefinitions: { protective: string; neutral: string; vulnerable: string };
@@ -38,6 +42,12 @@ export function toFeedbackEdit(cfg: FeedbackConfig | null): FeedbackEdit {
         },
       ])
     ) as FeedbackEdit["stages"],
+    parts: {
+      yourResponse: cfg?.parts?.yourResponse ?? true,
+      stageIntent: cfg?.parts?.stageIntent ?? true,
+      nextMove: cfg?.parts?.nextMove ?? true,
+    },
+    displayMode: cfg?.displayMode === 'tabs' ? 'tabs' : 'collective',
   };
 }
 
@@ -83,6 +93,13 @@ export function fromFeedbackEdit(edit: FeedbackEdit): FeedbackConfig | null {
     if (Object.keys(stage).length > 0) stages[s] = stage;
   }
   if (Object.keys(stages).length > 0) out.stages = stages;
+
+  // Display config: persist only when it differs from the default (all parts on, collective).
+  if (!edit.parts.yourResponse || !edit.parts.stageIntent || !edit.parts.nextMove) {
+    out.parts = { ...edit.parts };
+  }
+  if (edit.displayMode !== 'collective') out.displayMode = edit.displayMode;
+
   return Object.keys(out).length > 0 ? out : null;
 }
 
@@ -242,6 +259,42 @@ export default function PromptEditor({
             onChange={(v) => onFeedbackChange({ ...feedback, instruction: v })}
             rows={6}
           />
+
+          {/* Feedback display: part toggles + collective/tabs (§6.2, L238) */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Feedback display</label>
+            <p className="text-xs text-gray-500 mb-2">
+              Choose which of the three feedback parts learners see, and whether they appear as one
+              message or as separate tabs.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {FEEDBACK_PART_KEYS.map((k) => (
+                <label key={k} className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={feedback.parts[k]}
+                    onChange={(e) => onFeedbackChange({ ...feedback, parts: { ...feedback.parts, [k]: e.target.checked } })}
+                    className="h-4 w-4 accent-purple-600"
+                  />
+                  {FEEDBACK_PART_LABELS[k]}
+                </label>
+              ))}
+            </div>
+            <div className="mt-3 flex gap-4">
+              {(['collective', 'tabs'] as const).map((m) => (
+                <label key={m} className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="radio"
+                    name="feedback-display-mode"
+                    checked={feedback.displayMode === m}
+                    onChange={() => onFeedbackChange({ ...feedback, displayMode: m })}
+                    className="h-4 w-4 accent-purple-600"
+                  />
+                  {m === 'collective' ? 'One message' : 'Separate tabs'}
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="space-y-4 pt-2 border-t border-gray-100">

@@ -25,11 +25,7 @@ const FEEDBACK_STAGE_GOALS: Record<number, string> = {
   6: "Reinforce that moving offline or pressure to meet is a serious risk. Promote explicitly refusing, staying online-only, blocking/reporting, preserving evidence, and reaching out for help.",
 };
 
-const FEEDBACK_INSTRUCTION = `Give immediate, lightweight feedback on the teen's most recent reply (the most recent "User" line). The online stranger has usually already responded right after it — use that response to show, concretely, what the teen's reply led to. In just a few short sentences (no headings, no bullet lists):
-- name what the online stranger is doing (their grooming tactic),
-- say whether the teen's reply made them safer (more resilient) or more vulnerable, and briefly why — referring to how the online stranger reacted when it helps,
-- offer one concrete, safer thing the teen could say or do next (a stage-appropriate protective strategy).
-Be warm, supportive, and non-judgmental. Keep it brief so as not to overwhelm.`;
+const FEEDBACK_INSTRUCTION = `Give immediate, lightweight feedback on the teen's most recent reply (the most recent "User" line). The online stranger has usually already responded right after it — use that response to show, concretely, what the teen's reply led to. Be warm, supportive, and non-judgmental, and keep each part to one or two short sentences so it stays easy to read at a glance.`;
 
 // Fully-populated variant (every field present) for the system default.
 export type FullFeedbackConfig = {
@@ -88,9 +84,13 @@ ${conversationContext}
 
 You have two jobs.
 
-1) FEEDBACK (the "feedback" field): ${instruction}
+1) FEEDBACK (the "yourResponse", "stageIntent", and "nextMove" fields): ${instruction}
+Return three short, separate parts:
+- "yourResponse": whether the teen's most recent reply made them safer (more protective) or more vulnerable, and briefly why — referring to how the online stranger reacted when it helps.
+- "stageIntent": the online stranger's current grooming stage and the SPECIFIC tactic they are using right now (name the concrete move — e.g. asking for a photo, pushing to move to another app, testing whether the teen is alone or will keep secrets — not a generic description), and why it is risky.
+- "nextMove": one concrete, safer thing the teen could say or do on the next turn (a stage-appropriate protective strategy).
 
-2) CLASSIFICATION (the "classification", "tacticRecognized", "protectiveStrategy", and "rationale" fields):
+2) CLASSIFICATION (the "classification", "responseType", "tacticRecognized", "protectiveStrategy", and "rationale" fields):
 ${buildClassificationRubric(s, classificationCfg)}
 For "rationale", give one short sentence explaining the classification. The rationale and classification are for researchers and are NOT shown to the teen.`;
 }
