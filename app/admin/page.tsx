@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut, Check } from "lucide-react";
+import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut, Check, RotateCcw } from "lucide-react";
 import { useScenarioStore, type Scenario, type Message, GROOMING_STAGES } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import PromptEditor, {
@@ -56,6 +56,7 @@ export default function AdminPage() {
     addScenario,
     deleteScenario,
     updateScenario,
+    restoreDefaultScenarios,
     setAge,
     saveAdminPrompts,
     deleteAccount
@@ -75,6 +76,7 @@ export default function AdminPage() {
   );
   const [hasChanges, setHasChanges] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview'>('scenarios');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -192,6 +194,30 @@ export default function AdminPage() {
     updated.splice(index, 1);
     setEditingScenarios(updated);
     setHasChanges(true);
+  };
+
+  // Replace all scenarios with the two default RYLAI study scenarios. Destructive: wipes
+  // learner messages/feedback/progress tied to the current scenarios (cascade delete).
+  const handleRestoreDefaults = async () => {
+    if (!confirm(
+      `Restore the default study scenarios?\n\n` +
+      `This REPLACES all current scenarios with the two default RYLAI scenarios ` +
+      `(Scenario 1 and Scenario 2). For every existing scenario it will permanently delete ` +
+      `all learner messages, feedback, and progress.\n\n` +
+      `This cannot be undone.`
+    )) {
+      return;
+    }
+    setIsRestoring(true);
+    try {
+      await restoreDefaultScenarios();
+      setHasChanges(false);
+    } catch (error) {
+      console.error('Failed to restore default scenarios:', error);
+      alert('Failed to restore default scenarios. Please try again.');
+    } finally {
+      setIsRestoring(false);
+    }
   };
 
   const handleSave = async () => {
@@ -807,7 +833,7 @@ export default function AdminPage() {
                       <span className="block text-xs text-gray-500">
                         {scenarioIndex === 0
                           ? "Not available for the first scenario — there's no previous conversation to continue."
-                          : "When on, this scenario starts with the messages and feedback carried over from the previous scenario. Preset messages are not used."}
+                          : "When on, this scenario shows the previous scenario's conversation for context, then the time-gap separator, then this scenario's preset messages — the predator re-opening the new conversation."}
                       </span>
                     </label>
                   </div>
@@ -832,14 +858,23 @@ export default function AdminPage() {
           ))}
           </div>
 
-          {/* Add Scenario Button */}
-          <div className="mt-6">
+          {/* Add / Restore Scenario Buttons */}
+          <div className="mt-6 flex flex-wrap items-center gap-3">
           <button
             onClick={handleAddScenario}
             className="flex items-center px-6 py-3 bg-purple-600 text-white hover:bg-purple-700 rounded-lg font-medium"
           >
             <Plus className="w-5 h-5 mr-2" />
             Add New Scenario
+          </button>
+          <button
+            onClick={handleRestoreDefaults}
+            disabled={isRestoring}
+            className="flex items-center px-6 py-3 border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Replace all scenarios with the two default RYLAI study scenarios"
+          >
+            <RotateCcw className={`w-5 h-5 mr-2 ${isRestoring ? 'animate-spin' : ''}`} />
+            {isRestoring ? 'Restoring…' : 'Restore default scenarios'}
           </button>
           </div>
         </div>

@@ -235,11 +235,33 @@ export default function ChatPage() {
       const ownFeedbacks = await loadUserFeedbacks(sc.id);
 
       if (sc.persistMessages && currentScenario > 0) {
-        // Continue the previous scenario's conversation; preset messages are not used.
+        // Show the previous scenario's conversation for context, then a time-gap separator,
+        // then THIS scenario's own preset messages (the predator re-opening the fresh, later
+        // conversation) so the predator restarts it (§6, L168/L217). On the first visit we
+        // seed those presets as this scenario's own messages, tagging the predator's opening
+        // at this scenario's starting stage so the header/VT seed reflect the new phase.
         const { msgs: carried, fb: carriedFb } = await buildCarried();
-        const combined = [...carried, ...ownMessages];
         const fbMap = new Map(carriedFb);
         ownFeedbacks.forEach((v, key) => fbMap.set(key, v));
+
+        let own = ownMessages;
+        if (own.length === 0 && sc.presetMessages.length > 0) {
+          const seeded = sc.presetMessages.map((msg, index) => ({
+            ...msg,
+            id: `${sc.id}-preset-${index}-${Date.now()}-${msg.id}`,
+            stage: msg.sender === 'other' ? sc.stage : undefined,
+          }));
+          for (const msg of seeded) {
+            try {
+              await saveUserMessage(sc.id, msg);
+            } catch (error) {
+              console.error('Failed to save preset message:', error);
+            }
+          }
+          own = seeded;
+        }
+
+        const combined = [...carried, ...own];
         setMessages(combined);
         setFeedbackByMessageId(fbMap);
         restoreStage(combined);

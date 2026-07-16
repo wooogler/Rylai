@@ -254,6 +254,7 @@ interface ScenarioStore {
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
+  restoreDefaultScenarios: () => Promise<void>;
   getScenarioBySlug: (slug: string) => Scenario | undefined;
   saveUserMessage: (scenarioId: number, message: Message) => Promise<void>;
   saveUserFeedback: (scenarioId: number, messageId: string, feedbackText: string) => Promise<void>;
@@ -496,6 +497,26 @@ export const useScenarioStore = create<ScenarioStore>()(
           console.error('Error deleting scenario:', error);
           throw error;
         }
+      },
+
+      // Replace the educator's scenarios with the study defaults (destructive; the admin UI
+      // confirms first). Returns the freshly-seeded scenarios into the store.
+      restoreDefaultScenarios: async () => {
+        const { userId } = get();
+        if (!userId) return;
+
+        const response = await fetch('/api/restore-default-scenarios', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to restore default scenarios');
+        }
+
+        const data = await response.json();
+        set({ scenarios: data.scenarios || [] });
       },
 
       getScenarioBySlug: (slug: string) => {
