@@ -44,6 +44,30 @@ function effectiveStartStage(
   return scenarios[k]?.stage ?? 1;
 }
 
+// Stage governor helpers (§6, L198/L249) --------------------------------------
+// How many of the most recent consecutive predator turns were at `stage` — i.e. how long
+// the conversation has been sitting at the current stage.
+function countTrailingStage(messages: Message[], stage: number): number {
+  let n = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.sender !== 'other') continue;
+    if (m.stage === stage) n++;
+    else break;
+  }
+  return n;
+}
+
+// The classification of the most recent already-evaluated participant reply (the just-sent
+// reply isn't classified yet, so this is the previous one — a best-effort proxy).
+function lastClassifiedUserReply(messages: Message[]): ResponseLabel | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.sender === 'user' && m.classification) return m.classification;
+  }
+  return null;
+}
+
 export default function ChatPage() {
   const router = useRouter();
   const params = useParams();
@@ -429,11 +453,20 @@ export default function ChatPage() {
     // pins the stage server-side, so it needs no override.
     const isFirstTurn = !vtSessionId;
     const isPersist = scenario.persistMessages && currentScenario > 0;
-    // Fresh scenario: seed at its starting stage on the first turn. Persist scenario:
-    // continue from the carried/current stage instead of resetting to its own stage.
-    const stageOverride = scenario.autoStage && isFirstTurn
-      ? (isPersist ? predictedStage : scenario.stage)
-      : null;
+    const currentStage = predictedStage ?? scenario.stage;
+    // Stage governor. First turn: seed at the starting stage (fresh) / carried stage
+    // (persist). Later auto turns: hold the current stage when the conversation hasn't yet
+    // had `minExchangesPerStage` turns there (§6, L198 — no abrupt jumps) OR the teen's last
+    // evaluated reply was protective (§6, L249 — protective replies never trigger an
+    // escalation). Holding also suppresses de-escalation for that turn, an acceptable trade.
+    let stageOverride: number | null = null;
+    if (scenario.autoStage && isFirstTurn) {
+      stageOverride = isPersist ? predictedStage : scenario.stage;
+    } else if (scenario.autoStage) {
+      const heldByPacing = countTrailingStage(messages, currentStage) < (scenario.minExchangesPerStage ?? 0);
+      const heldByProtective = lastClassifiedUserReply(messages) === 'protective';
+      stageOverride = heldByPacing || heldByProtective ? currentStage : null;
+    }
 
     fetch('/api/chat', {
       method: 'POST',
@@ -609,6 +642,14 @@ export default function ChatPage() {
     setShowCongrats(false);
     setEndedReason('completed');
     if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
+  };
+
+  // Voluntary "I don't feel comfortable anymore." exit, available at any time (§6, L216).
+  const handleComfortExit = () => {
+    if (!confirm("End this conversation now? It's completely okay to stop whenever you want.")) return;
+    setShowCongrats(false);
+    setEndedReason('comfort_exit');
+    if (userType === 'user') recordScenarioLifecycle(scenario.id, 'comfort_exit');
   };
 
   const handlePreviousScenario = () => {
@@ -965,7 +1006,6 @@ export default function ChatPage() {
                         isLastInGroup={isLastInGroup}
                         showAvatar={showAvatar}
                         avatarSeed={scenario.handle}
-                        fallbackStage={scenario.stage}
                         onClick={
                           hasComment
                             ? () => setExpandedCommentId(prev => (prev === message.id ? null : message.id))
@@ -1003,6 +1043,7 @@ export default function ChatPage() {
                     : "You've ended this conversation. It's okay to step away anytime."}
                 </div>
               ) : (
+              <>
               <div className="relative">
                 <div className={`relative ${responseText.trim() && !isBusy ? 'ring-2 ring-gray-400 ring-offset-2 rounded-full transition-all' : ''}`}>
                   <input
@@ -1047,6 +1088,15 @@ export default function ChatPage() {
                   )}
                 </div>
               </div>
+              <div className="mt-2.5 text-center">
+                <button
+                  onClick={handleComfortExit}
+                  className="text-xs text-gray-400 underline hover:text-gray-600"
+                >
+                  I don&apos;t feel comfortable anymore.
+                </button>
+              </div>
+              </>
               )}
             </div>
           </div>

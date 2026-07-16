@@ -100,6 +100,7 @@ export default function AdminPage() {
         masteryTargetRate: s.masteryTargetRate ?? 80,
         masteryMinResponses: s.masteryMinResponses ?? 20,
         masteryThreshold: s.masteryThreshold ?? 5,
+        minExchangesPerStage: s.minExchangesPerStage ?? 5,
         persistMessages: s.persistMessages ?? false,
         timeGapLabel: s.timeGapLabel ?? '',
         splashMarkdown: s.splashMarkdown ?? null,
@@ -191,6 +192,7 @@ export default function AdminPage() {
       masteryTargetRate: 80,
       masteryMinResponses: 20,
       masteryThreshold: 5,
+      minExchangesPerStage: 5,
       persistMessages: false,
       timeGapLabel: '',
       splashMarkdown: null,
@@ -317,6 +319,7 @@ export default function AdminPage() {
             maxStage: s.maxStage ?? 6,
             masteryTargetRate: s.masteryTargetRate ?? 80,
             masteryMinResponses: s.masteryMinResponses ?? 20,
+            minExchangesPerStage: s.minExchangesPerStage ?? 5,
             timeGapLabel: s.timeGapLabel ?? '',
             splashMarkdown: s.splashMarkdown ?? null,
           }));
@@ -713,6 +716,23 @@ export default function AdminPage() {
                       </span>
                     </label>
                   </div>
+
+                  {scenario.autoStage && (
+                    <div className="ml-7 flex flex-wrap items-center gap-2">
+                      <label htmlFor={`min-exch-${scenario.id}`} className="text-xs text-gray-600">
+                        Minimum exchanges at a stage before it can escalate
+                      </label>
+                      <input
+                        id={`min-exch-${scenario.id}`}
+                        type="number"
+                        min={0}
+                        value={scenario.minExchangesPerStage ?? 5}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'minExchangesPerStage', Math.max(0, parseInt(e.target.value) || 0))}
+                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <span className="text-xs text-gray-400">(0 = no minimum; protective replies also hold the stage)</span>
+                    </div>
+                  )}
 
                   {/* Stage controls: starting stage, plus min/max bounds in auto mode */}
                   <div>

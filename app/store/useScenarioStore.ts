@@ -170,6 +170,8 @@ export interface Scenario {
   masteryMinResponses: number;
   // LEGACY streak threshold — no longer used by the gate (kept for backward compat only).
   masteryThreshold: number;
+  // Minimum predator↔teen exchanges at a stage before it may escalate (§6, L198). 0 = off.
+  minExchangesPerStage: number;
   persistMessages: boolean;
   // Label for the "3 months later" time-gap separator rendered between the carried-over
   // previous-scenario messages and this scenario's fresh conversation. Empty = no separator.
