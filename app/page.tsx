@@ -19,20 +19,31 @@ export default function Home() {
   const [accessCode, setAccessCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // When arriving from an educator-dedicated URL (/<educator>), we remember it here and route
+  // learners back to it after auth (so they land in that educator's scenarios). §6, L96–97.
+  const [educatorParam, setEducatorParam] = useState<string | null>(null);
+  useEffect(() => {
+    const e = new URLSearchParams(window.location.search).get("educator");
+    if (e) setEducatorParam(e);
+  }, []);
+
+  const learnerLanding = () =>
+    educatorParam ? `/${encodeURIComponent(educatorParam)}` : "/select-user";
 
   // If already logged in (cookie session), skip the form.
   useEffect(() => {
     if (authHydrated && isAuthenticated) {
-      router.replace(isAdmin ? "/admin" : "/select-user");
+      router.replace(isAdmin ? "/admin" : learnerLanding());
     }
-  }, [authHydrated, isAuthenticated, isAdmin, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authHydrated, isAuthenticated, isAdmin, educatorParam, router]);
 
   const goToLanding = async (userType: "admin" | "user") => {
     if (userType === "admin") {
       await loadUserScenarios();
       router.push("/admin");
     } else {
-      router.push("/select-user");
+      router.push(learnerLanding());
     }
   };
 
