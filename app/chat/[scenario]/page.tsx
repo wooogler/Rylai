@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock } from "lucide-react";
+import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeProtectiveRate } from "../../store/useScenarioStore";
@@ -10,6 +10,7 @@ import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import FeedbackComment from "../FeedbackComment";
 import CongratsModal from "../CongratsModal";
+import SplashModal from "../SplashModal";
 import Button from "@/components/Button";
 
 interface PreviewFeedback {
@@ -69,6 +70,8 @@ export default function ChatPage() {
     recordScenarioLifecycle,
     loadScenarioProgress,
     resetScenarioProgress,
+    markSplashSeen,
+    clearSplashSeen,
     setVtSession,
     logout
   } = useScenarioStore();
@@ -103,6 +106,8 @@ export default function ChatPage() {
   // first reached, and the "ended" banner after the learner ends the chat / exits.
   const [showCongrats, setShowCongrats] = useState(false);
   const [endedReason, setEndedReason] = useState<'completed' | 'comfort_exit' | null>(null);
+  // Scenario splash modal (§6): auto-shown on first entry, re-openable from the header ⓘ.
+  const [showSplash, setShowSplash] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -226,6 +231,11 @@ export default function ChatPage() {
     // initialize from preset messages on first visit.
     const loadMessages = async () => {
       if (!sc) return;
+
+      // Auto-show this scenario's splash on first entry (learner + admin preview); re-runs
+      // on scenario change / reload, so it re-appears after a refresh/reset clears "seen".
+      const splashText = sc.splashMarkdown?.trim();
+      setShowSplash(!!splashText && !useScenarioStore.getState().splashSeen[sc.id]);
 
       await recordScenarioVisit(sc.id);
       const progressMap = await loadScenarioProgress();
@@ -678,6 +688,8 @@ export default function ChatPage() {
         await resetScenarioProgress(scenarioId);
       }
       setVtSession(scenarioId, null, null);
+      // Let this scenario's splash re-appear on the fresh start.
+      clearSplashSeen([scenarioId]);
 
       await reloadEducatorData();
 
@@ -732,6 +744,8 @@ export default function ChatPage() {
         }
         setVtSession(sc.id, null, null);
       }
+      // Let every scenario's splash re-appear when starting the module over.
+      clearSplashSeen();
 
       await reloadEducatorData();
 
@@ -842,14 +856,25 @@ export default function ChatPage() {
                     <p className="text-sm text-gray-500">{scenario.handle}</p>
                   </div>
                 </div>
-                <button
-                  onClick={handleRefreshScenario}
-                  disabled={isRefreshing || isResetting || isBusy}
-                  className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Refresh this scenario: reload your teacher's latest version and start the conversation over"
-                >
-                  <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                </button>
+                <div className="flex items-center gap-1">
+                  {scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
+                    <button
+                      onClick={() => setShowSplash(true)}
+                      className="p-2 text-gray-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
+                      title="About this scenario"
+                    >
+                      <Info className="w-5 h-5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={handleRefreshScenario}
+                    disabled={isRefreshing || isResetting || isBusy}
+                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    title="Refresh this scenario: reload your teacher's latest version and start the conversation over"
+                  >
+                    <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
                 {/* Read-only current stage (hover for description) */}
@@ -1140,6 +1165,13 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+
+        {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
+          <SplashModal
+            content={scenario.splashMarkdown}
+            onStart={() => { markSplashSeen(scenario.id); setShowSplash(false); }}
+          />
+        )}
 
         {showCongrats && (
           <CongratsModal

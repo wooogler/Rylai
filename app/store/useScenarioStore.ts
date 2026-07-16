@@ -174,6 +174,9 @@ export interface Scenario {
   // Label for the "3 months later" time-gap separator rendered between the carried-over
   // previous-scenario messages and this scenario's fresh conversation. Empty = no separator.
   timeGapLabel: string;
+  // Educator-authored splash-screen content (Markdown) shown as a scrollable modal over the
+  // chat when the learner first enters this scenario. Null/empty = no splash.
+  splashMarkdown: string | null;
 }
 
 export interface ScenarioProgress {
@@ -245,6 +248,9 @@ interface ScenarioStore {
   adminUserId: string | null;
   adminName: string | null;
   vtSessions: Record<number, VtSessionState>;
+  // Per-scenario flag: has the learner already seen this scenario's splash modal? Persisted
+  // so the splash auto-shows only on first entry (the ⓘ button re-opens it on demand).
+  splashSeen: Record<number, boolean>;
   setAuthUser: (user: AuthUser) => void;
   hydrateAuth: () => Promise<boolean>;
   setAdminContext: (adminUserId: string, age: number | null, adminName: string | null) => void;
@@ -273,6 +279,8 @@ interface ScenarioStore {
   ) => Promise<void>;
   loadUserMessages: (scenarioId: number) => Promise<Message[]>;
   loadUserFeedbacks: (scenarioId: number) => Promise<Map<string, string>>;
+  markSplashSeen: (scenarioId: number) => void;
+  clearSplashSeen: (scenarioIds?: number[]) => void;
   recordScenarioVisit: (scenarioId: number) => Promise<void>;
   recordScenarioLifecycle: (scenarioId: number, kind: 'completed' | 'comfort_exit') => Promise<void>;
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
@@ -301,6 +309,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       adminUserId: null,
       adminName: null,
       vtSessions: {},
+      splashSeen: {},
 
       // Populate auth state from a login/signup/me response.
       setAuthUser: (user: AuthUser) => {
@@ -658,6 +667,22 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      // Mark a scenario's splash modal as seen (so it won't auto-open again).
+      markSplashSeen: (scenarioId) => {
+        set((state) => ({ splashSeen: { ...state.splashSeen, [scenarioId]: true } }));
+      },
+
+      // Forget "seen" flags so the splash auto-opens again — for specific scenarios (on
+      // refresh) or all of them (on module reset). No arg = clear everything.
+      clearSplashSeen: (scenarioIds) => {
+        set((state) => {
+          if (!scenarioIds) return { splashSeen: {} };
+          const next = { ...state.splashSeen };
+          for (const id of scenarioIds) delete next[id];
+          return { splashSeen: next };
+        });
+      },
+
       recordScenarioVisit: async (scenarioId: number) => {
         const { userId } = get();
         if (!userId) return;
@@ -814,6 +839,7 @@ export const useScenarioStore = create<ScenarioStore>()(
         scenarios: state.scenarios,
         age: state.age,
         vtSessions: state.vtSessions,
+        splashSeen: state.splashSeen,
       }),
     }
   )

@@ -7,7 +7,7 @@ import { eq, and } from 'drizzle-orm';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage, minStage, maxStage, masteryEnabled, masteryTargetRate, masteryMinResponses, masteryThreshold, persistMessages, timeGapLabel } = body;
+    const { userId, slug, name, predatorName, handle, presetMessages, description, stage, autoStage, minStage, maxStage, masteryEnabled, masteryTargetRate, masteryMinResponses, masteryThreshold, persistMessages, timeGapLabel, splashMarkdown } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
         masteryThreshold: typeof masteryThreshold === 'number' ? masteryThreshold : 5,
         persistMessages: persistMessages ?? false,
         timeGapLabel: typeof timeGapLabel === 'string' ? timeGapLabel : '',
+        splashMarkdown: typeof splashMarkdown === 'string' ? splashMarkdown : null,
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -84,6 +85,7 @@ export async function PATCH(request: NextRequest) {
     if (updates.masteryThreshold !== undefined) dbUpdates.masteryThreshold = updates.masteryThreshold;
     if (updates.persistMessages !== undefined) dbUpdates.persistMessages = updates.persistMessages;
     if (updates.timeGapLabel !== undefined) dbUpdates.timeGapLabel = updates.timeGapLabel;
+    if (updates.splashMarkdown !== undefined) dbUpdates.splashMarkdown = updates.splashMarkdown;
 
     await db.update(scenarios)
       .set(dbUpdates)

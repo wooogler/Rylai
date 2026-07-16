@@ -80,6 +80,7 @@ export default function AdminPage() {
   );
   const [editWelcome, setEditWelcome] = useState<string>('');
   const [showWelcomePreview, setShowWelcomePreview] = useState(false);
+  const [splashPreview, setSplashPreview] = useState<Record<number, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
@@ -101,6 +102,7 @@ export default function AdminPage() {
         masteryThreshold: s.masteryThreshold ?? 5,
         persistMessages: s.persistMessages ?? false,
         timeGapLabel: s.timeGapLabel ?? '',
+        splashMarkdown: s.splashMarkdown ?? null,
       }))
     );
     setEditingAge(age);
@@ -191,6 +193,7 @@ export default function AdminPage() {
       masteryThreshold: 5,
       persistMessages: false,
       timeGapLabel: '',
+      splashMarkdown: null,
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
@@ -315,6 +318,7 @@ export default function AdminPage() {
             masteryTargetRate: s.masteryTargetRate ?? 80,
             masteryMinResponses: s.masteryMinResponses ?? 20,
             timeGapLabel: s.timeGapLabel ?? '',
+            splashMarkdown: s.splashMarkdown ?? null,
           }));
         if (Array.isArray(imported)) {
           setEditingScenarios(withDefaults(imported));
@@ -652,6 +656,40 @@ export default function AdminPage() {
                       onChange={(e) => handleUpdateScenario(scenarioIndex, 'description', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     />
+                  </div>
+
+                  {/* Splash screen (shown when a learner first enters this scenario) */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Splash screen (Markdown)
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setSplashPreview((p) => ({ ...p, [scenario.id]: !p[scenario.id] }))}
+                        className="text-sm font-medium text-purple-600 hover:text-purple-800"
+                      >
+                        {splashPreview[scenario.id] ? 'Edit' : 'Preview'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-2">
+                      Shown as a modal when a learner first enters this scenario. Leave empty for no splash.
+                    </p>
+                    {splashPreview[scenario.id] ? (
+                      <div className="min-h-[6rem] rounded-lg border border-gray-200 bg-gray-50 p-4">
+                        {(scenario.splashMarkdown ?? '').trim()
+                          ? <Markdown>{scenario.splashMarkdown ?? ''}</Markdown>
+                          : <p className="text-sm italic text-gray-400">No splash content.</p>}
+                      </div>
+                    ) : (
+                      <textarea
+                        value={scenario.splashMarkdown ?? ''}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'splashMarkdown', e.target.value)}
+                        rows={8}
+                        placeholder="Splash content (Markdown)…"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    )}
                   </div>
 
                   {/* Auto Stage toggle */}
