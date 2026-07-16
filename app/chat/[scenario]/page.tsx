@@ -424,8 +424,9 @@ export default function ChatPage() {
     setPreviewFeedback(null);
     setPreviewText('');
 
-    // Show the loading comment card anchored to this reply right away.
-    setPendingFeedbackId(newMessage.id);
+    // Show the loading comment card anchored to this reply right away (assessment mode has
+    // no feedback agent, so nothing is anchored there).
+    if (!scenario.assessmentMode) setPendingFeedbackId(newMessage.id);
 
     // Save user message for learners
     if (userId) {
@@ -462,7 +463,9 @@ export default function ChatPage() {
     let stageOverride: number | null = null;
     if (scenario.autoStage && isFirstTurn) {
       stageOverride = isPersist ? predictedStage : scenario.stage;
-    } else if (scenario.autoStage) {
+    } else if (scenario.autoStage && !scenario.assessmentMode) {
+      // Assessment mode progresses naturally (no governor); training mode holds the stage
+      // for pacing / after protective replies.
       const heldByPacing = countTrailingStage(messages, currentStage) < (scenario.minExchangesPerStage ?? 0);
       const heldByProtective = lastClassifiedUserReply(messages) === 'protective';
       stageOverride = heldByPacing || heldByProtective ? currentStage : null;
@@ -520,9 +523,18 @@ export default function ChatPage() {
 
         setIsTyping(false);
 
-        // Now give feedback on the teen's reply, with the predator's response in
-        // context — this grounds the feedback in what actually happened.
-        generateFeedback(conversationWithReply, userReplyIndex, replyStage);
+        if (scenario.assessmentMode) {
+          // 6.1b assessment: no feedback agent. End the session once the message limit
+          // (counting both sides) is reached (§6.1b, L223–225).
+          if (scenario.maxMessages > 0 && conversationWithReply.length >= scenario.maxMessages) {
+            setEndedReason('completed');
+            if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
+          }
+        } else {
+          // Now give feedback on the teen's reply, with the predator's response in
+          // context — this grounds the feedback in what actually happened.
+          generateFeedback(conversationWithReply, userReplyIndex, replyStage);
+        }
       })
       .catch(error => {
         console.error('API error:', error);
@@ -818,6 +830,10 @@ export default function ChatPage() {
 
   if (!scenario) return null;
 
+  // 6.1b assessment mode hides the stage UI, the protective-rate badge, and the mastery gate,
+  // and runs without the feedback agent (see handleSendResponse).
+  const isAssessment = scenario.assessmentMode;
+
   // Stage shown in the chat header (read-only): predicted stage when auto, else fixed.
   const headerStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
   const headerStageInfo = GROOMING_STAGES.find(s => s.stage === headerStage);
@@ -830,7 +846,7 @@ export default function ChatPage() {
   const reachedSticky = !!scenarioProgressMap.get(scenario.id)?.masteryReachedAt;
   const masteryMet = reachedSticky || ratePct >= target;
   // The learner can't advance until they meet the target (admins are not gated).
-  const masteryLocked = scenario.masteryEnabled && userType === 'user' && !masteryMet;
+  const masteryLocked = scenario.masteryEnabled && userType === 'user' && !masteryMet && !isAssessment;
   // Show the lock hint only when there's actually a next scenario to unlock.
   const showLockTip = masteryLocked && currentScenario < scenarios.length - 1;
   const isLastScenario = currentScenario === scenarios.length - 1;
@@ -925,7 +941,8 @@ export default function ChatPage() {
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
-                {/* Read-only current stage (hover for description) */}
+                {/* Read-only current stage (hidden in assessment mode — natural progression) */}
+                {!isAssessment && (
                 <div className="relative group">
                   <div className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${getStageColorClass(headerStage)} ${headerStageInfo ? 'cursor-help' : ''}`}>
                     Stage {headerStage}: {headerStageInfo?.name || 'Unknown'}
@@ -937,7 +954,8 @@ export default function ChatPage() {
                     </div>
                   )}
                 </div>
-                {(scenario.masteryEnabled || rateInfo.classified > 0) ? (
+                )}
+                {!isAssessment && (scenario.masteryEnabled || rateInfo.classified > 0) ? (
                   <div className="relative group">
                     <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-help ${
                       masteryMet ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
@@ -1062,6 +1080,7 @@ export default function ChatPage() {
                   />
                   {responseText.trim() && !isBusy && (
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                      {!isAssessment && (
                       <div className="relative group">
                         <button
                           onClick={handlePreviewFeedback}
@@ -1073,6 +1092,7 @@ export default function ChatPage() {
                           Preview {teacherName}&apos;s feedback on your draft before sending it.
                         </div>
                       </div>
+                      )}
                       <div className="relative group">
                         <button
                           onClick={handleSendResponse}

@@ -106,6 +106,8 @@ export default function AdminPage() {
         persistMessages: s.persistMessages ?? false,
         timeGapLabel: s.timeGapLabel ?? '',
         splashMarkdown: s.splashMarkdown ?? null,
+        assessmentMode: s.assessmentMode ?? false,
+        maxMessages: s.maxMessages ?? 0,
       }))
     );
     setEditingAge(age);
@@ -198,6 +200,8 @@ export default function AdminPage() {
       persistMessages: false,
       timeGapLabel: '',
       splashMarkdown: null,
+      assessmentMode: false,
+      maxMessages: 0,
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
@@ -324,6 +328,8 @@ export default function AdminPage() {
             minExchangesPerStage: s.minExchangesPerStage ?? 5,
             timeGapLabel: s.timeGapLabel ?? '',
             splashMarkdown: s.splashMarkdown ?? null,
+            assessmentMode: s.assessmentMode ?? false,
+            maxMessages: s.maxMessages ?? 0,
           }));
         if (Array.isArray(imported)) {
           setEditingScenarios(withDefaults(imported));
@@ -979,6 +985,43 @@ export default function AdminPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Assessment mode (6.1b) — full width */}
+              <div className="mt-4 bg-amber-50 rounded-lg p-3 border border-amber-200">
+                <div className="flex items-start gap-3">
+                  <input
+                    id={`assess-${scenario.id}`}
+                    type="checkbox"
+                    checked={!!scenario.assessmentMode}
+                    onChange={(e) => handleUpdateScenario(scenarioIndex, 'assessmentMode', e.target.checked)}
+                    className="mt-1 h-4 w-4 accent-amber-600 cursor-pointer"
+                  />
+                  <label htmlFor={`assess-${scenario.id}`} className="cursor-pointer">
+                    <span className="block text-sm font-medium text-gray-800">Assessment mode (predator only)</span>
+                    <span className="block text-xs text-gray-500">
+                      For the post-training assessment: the online stranger progresses naturally with no
+                      stage display, no feedback, and no protective-rate gate. The conversation ends after
+                      the message limit below.
+                    </span>
+                  </label>
+                </div>
+                {scenario.assessmentMode && (
+                  <div className="mt-3 ml-7 flex flex-wrap items-center gap-2">
+                    <label htmlFor={`maxmsg-${scenario.id}`} className="text-xs text-gray-600">
+                      End after this many messages
+                    </label>
+                    <input
+                      id={`maxmsg-${scenario.id}`}
+                      type="number"
+                      min={0}
+                      value={scenario.maxMessages ?? 0}
+                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'maxMessages', Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <span className="text-xs text-gray-400">(0 = no limit; counts both sides)</span>
+                  </div>
+                )}
               </div>
             </div>
           ))}

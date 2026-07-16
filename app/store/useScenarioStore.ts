@@ -179,6 +179,10 @@ export interface Scenario {
   // Educator-authored splash-screen content (Markdown) shown as a scrollable modal over the
   // chat when the learner first enters this scenario. Null/empty = no splash.
   splashMarkdown: string | null;
+  // 6.1b assessment-only mode: predator-only, no stage UI / feedback / mastery gate, natural
+  // progression, ending after `maxMessages` messages (0 = no limit).
+  assessmentMode: boolean;
+  maxMessages: number;
 }
 
 export interface ScenarioProgress {
