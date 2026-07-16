@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Per-educator overrides for the feedback / classification prompts. Every field is
 // optional: a missing (or empty) value falls back to the hardcoded system default
@@ -59,6 +59,10 @@ export const users = sqliteTable(
     // "use system defaults" for every field. Resolved server-side in /api/feedback.
     feedbackConfig: text('feedback_config', { mode: 'json' }).$type<FeedbackConfig>(),
     classificationConfig: text('classification_config', { mode: 'json' }).$type<ClassificationConfig>(),
+    // Educator-authored Welcome-screen content (Markdown), shown after a learner picks
+    // this educator and before the first scenario. Null = skip the welcome screen.
+    // (Evaluation Plan §6, L105–121 / L183.)
+    welcomeMarkdown: text('welcome_markdown'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
@@ -94,13 +98,31 @@ export const scenarios = sqliteTable(
     // both its prediction and the generated content to this cap, so the predator
     // never escalates past it. Default 6 = no cap (matches pre-feature behavior).
     maxStage: integer('max_stage').notNull().default(6),
-    // Mastery gate: when enabled, the learner must reach a streak of `masteryThreshold`
-    // consecutive non-vulnerable (protective/neutral) replies before advancing.
+    // 80% Protective Response Rate gate (Evaluation Plan §6, L135/L146). When enabled, the
+    // learner must reach `masteryTargetRate`% protective responses before advancing.
     masteryEnabled: integer('mastery_enabled', { mode: 'boolean' }).notNull().default(false),
+    // Target protective-response percentage (0–100) that unlocks the next scenario. L146.
+    masteryTargetRate: integer('mastery_target_rate').notNull().default(80),
+    // Denominator floor for the protective-rate formula: protective / Max(minResponses,
+    // protective+neutral+vulnerable). Stops early replies from inflating the rate. L137.
+    masteryMinResponses: integer('mastery_min_responses').notNull().default(20),
+    // LEGACY (v3.x consecutive-streak gate, superseded by the masteryTargetRate score
+    // gate and no longer read by the app). Kept to avoid a destructive SQLite column drop.
     masteryThreshold: integer('mastery_threshold').notNull().default(3),
+    // Minimum predator↔teen exchanges at the current stage before it may escalate, so
+    // transitions never feel abrupt (esp. lower stages). L198. Enforced app-side via
+    // stageOverride. 0 = no minimum.
+    minExchangesPerStage: integer('min_exchanges_per_stage').notNull().default(5),
     // When true, this scenario continues the previous scenario's conversation instead of
     // using preset messages (preset messages are disabled).
     persistMessages: integer('persist_messages', { mode: 'boolean' }).notNull().default(false),
+    // Label for the time-gap separator rendered between the carried-over (previous
+    // scenario) messages and this scenario's fresh conversation, e.g. "3 months later".
+    // Empty = no separator. L168.
+    timeGapLabel: text('time_gap_label').notNull().default(''),
+    // Educator-authored splash-screen content (Markdown) shown as a scrollable modal over
+    // the chat when the learner first enters this scenario. Null = no splash. L123–137.
+    splashMarkdown: text('splash_markdown'),
     presetMessages: text('preset_messages', { mode: 'json' })
       .notNull()
       .$type<
@@ -209,6 +231,22 @@ export const scenarioProgress = sqliteTable(
     firstVisitedAt: integer('first_visited_at', { mode: 'timestamp_ms' }).notNull(),
     lastVisitedAt: integer('last_visited_at', { mode: 'timestamp_ms' }).notNull(),
     visitCount: integer('visit_count').notNull().default(1),
+    // Protective Response Rate snapshot (Evaluation Plan §6, L248 logging). The server
+    // recomputes these from user_messages classifications on each classification save;
+    // they are never trusted from the client.
+    protectiveCount: integer('protective_count').notNull().default(0),
+    neutralCount: integer('neutral_count').notNull().default(0),
+    vulnerableCount: integer('vulnerable_count').notNull().default(0),
+    // Latest protective rate in [0,1] = protective / Max(minResponses, total). Null until
+    // the first reply is classified.
+    protectiveRate: real('protective_rate'),
+    // First time the learner's protective rate met the scenario target. Sticky: once set,
+    // the next scenario stays unlocked even if the rate later dips. L33 / L146.
+    masteryReachedAt: integer('mastery_reached_at', { mode: 'timestamp_ms' }),
+    // Set when the learner voluntarily exits via "I don't feel comfortable anymore." L216.
+    comfortExitAt: integer('comfort_exit_at', { mode: 'timestamp_ms' }),
+    // Set when the learner ends the final scenario via "End Chat". L171.
+    completedAt: integer('completed_at', { mode: 'timestamp_ms' }),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),
