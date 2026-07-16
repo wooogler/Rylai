@@ -92,6 +92,7 @@ export default function AdminPage() {
         masteryMinResponses: s.masteryMinResponses ?? 20,
         masteryThreshold: s.masteryThreshold ?? 5,
         persistMessages: s.persistMessages ?? false,
+        timeGapLabel: s.timeGapLabel ?? '',
       }))
     );
     setEditingAge(age);
@@ -180,6 +181,7 @@ export default function AdminPage() {
       masteryMinResponses: 20,
       masteryThreshold: 5,
       persistMessages: false,
+      timeGapLabel: '',
     };
     setEditingScenarios([...editingScenarios, newScenario]);
     setHasChanges(true);
@@ -275,6 +277,7 @@ export default function AdminPage() {
             maxStage: s.maxStage ?? 6,
             masteryTargetRate: s.masteryTargetRate ?? 80,
             masteryMinResponses: s.masteryMinResponses ?? 20,
+            timeGapLabel: s.timeGapLabel ?? '',
           }));
         if (Array.isArray(imported)) {
           setEditingScenarios(withDefaults(imported));
@@ -808,6 +811,21 @@ export default function AdminPage() {
                       </span>
                     </label>
                   </div>
+                  {scenario.persistMessages && scenarioIndex !== 0 && (
+                    <div className="mt-3 ml-7 flex items-center gap-2">
+                      <label htmlFor={`timegap-${scenario.id}`} className="whitespace-nowrap text-xs text-gray-600">
+                        Time-gap separator
+                      </label>
+                      <input
+                        id={`timegap-${scenario.id}`}
+                        type="text"
+                        value={scenario.timeGapLabel ?? ''}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'timeGapLabel', e.target.value)}
+                        placeholder="e.g. 3 months later"
+                        className="flex-1 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

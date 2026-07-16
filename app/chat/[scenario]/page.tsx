@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
 import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
@@ -891,31 +891,44 @@ export default function ChatPage() {
                 const showAvatar = message.sender === "other" && isLastInGroup;
 
                 const hasComment = feedbackByMessageId.has(message.id);
+                // "3 months later"-style separator after the last carried-over (previous
+                // scenario) message, marking the time gap before the fresh conversation (§6, L168).
+                const showTimeGapAfter = !!scenario.timeGapLabel && !!message.carried && !nextMessage?.carried;
 
                 return (
-                  <div
-                    key={message.id}
-                    ref={(el) => {
-                      if (message.sender !== 'user') return;
-                      if (el) messageRowRefs.current.set(message.id, el);
-                      else messageRowRefs.current.delete(message.id);
-                    }}
-                    className={isFirstInGroup ? "mt-2" : "mt-0.5"}
-                  >
-                    <MessageBubble
-                      message={message}
-                      isFirstInGroup={isFirstInGroup}
-                      isLastInGroup={isLastInGroup}
-                      showAvatar={showAvatar}
-                      avatarSeed={scenario.handle}
-                      fallbackStage={scenario.stage}
-                      onClick={
-                        hasComment
-                          ? () => setExpandedCommentId(prev => (prev === message.id ? null : message.id))
-                          : undefined
-                      }
-                    />
-                  </div>
+                  <Fragment key={message.id}>
+                    <div
+                      ref={(el) => {
+                        if (message.sender !== 'user') return;
+                        if (el) messageRowRefs.current.set(message.id, el);
+                        else messageRowRefs.current.delete(message.id);
+                      }}
+                      className={isFirstInGroup ? "mt-2" : "mt-0.5"}
+                    >
+                      <MessageBubble
+                        message={message}
+                        isFirstInGroup={isFirstInGroup}
+                        isLastInGroup={isLastInGroup}
+                        showAvatar={showAvatar}
+                        avatarSeed={scenario.handle}
+                        fallbackStage={scenario.stage}
+                        onClick={
+                          hasComment
+                            ? () => setExpandedCommentId(prev => (prev === message.id ? null : message.id))
+                            : undefined
+                        }
+                      />
+                    </div>
+                    {showTimeGapAfter && (
+                      <div className="my-5 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-gray-200" />
+                        <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+                          {scenario.timeGapLabel}
+                        </span>
+                        <div className="h-px flex-1 bg-gray-200" />
+                      </div>
+                    )}
+                  </Fragment>
                 );
               })}
               {isTyping && (

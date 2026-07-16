@@ -171,6 +171,9 @@ export interface Scenario {
   // LEGACY streak threshold — no longer used by the gate (kept for backward compat only).
   masteryThreshold: number;
   persistMessages: boolean;
+  // Label for the "3 months later" time-gap separator rendered between the carried-over
+  // previous-scenario messages and this scenario's fresh conversation. Empty = no separator.
+  timeGapLabel: string;
 }
 
 export interface ScenarioProgress {
