@@ -88,6 +88,8 @@ export default function AdminPage() {
         minStage: s.minStage ?? 1,
         maxStage: s.maxStage ?? 6,
         masteryEnabled: s.masteryEnabled ?? false,
+        masteryTargetRate: s.masteryTargetRate ?? 80,
+        masteryMinResponses: s.masteryMinResponses ?? 20,
         masteryThreshold: s.masteryThreshold ?? 5,
         persistMessages: s.persistMessages ?? false,
       }))
@@ -174,6 +176,8 @@ export default function AdminPage() {
       minStage: 1,
       maxStage: 6,
       masteryEnabled: false,
+      masteryTargetRate: 80,
+      masteryMinResponses: 20,
       masteryThreshold: 5,
       persistMessages: false,
     };
@@ -265,7 +269,13 @@ export default function AdminPage() {
         // overrides. Prompt fields are only applied when present in the file.
         // Older exports predate per-scenario fields like maxStage; backfill defaults.
         const withDefaults = (list: Scenario[]) =>
-          list.map((s) => ({ ...s, minStage: s.minStage ?? 1, maxStage: s.maxStage ?? 6 }));
+          list.map((s) => ({
+            ...s,
+            minStage: s.minStage ?? 1,
+            maxStage: s.maxStage ?? 6,
+            masteryTargetRate: s.masteryTargetRate ?? 80,
+            masteryMinResponses: s.masteryMinResponses ?? 20,
+          }));
         if (Array.isArray(imported)) {
           setEditingScenarios(withDefaults(imported));
         } else if (imported.scenarios) {
@@ -722,7 +732,7 @@ export default function AdminPage() {
 
               {/* Scenario behavior toggles (bottom, side by side) */}
               <div className="mt-6 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Mastery */}
+                {/* Protective Response Rate gate */}
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                   <div className="flex items-start gap-3">
                     <input
@@ -734,28 +744,44 @@ export default function AdminPage() {
                     />
                     <label htmlFor={`mastery-${scenario.id}`} className="cursor-pointer">
                       <span className="block text-sm font-medium text-gray-800">
-                        Require mastery to continue
+                        Require a protective response rate to continue
                       </span>
                       <span className="block text-xs text-gray-500">
-                        When on, the learner can&apos;t advance to the next scenario until they reach
-                        a streak of consecutive safe (protective/neutral) replies. A risky reply
-                        resets the streak.
+                        When on, the learner can&apos;t advance until their Protective Response Rate reaches the
+                        target. The rate is protective replies ÷ Max(min&nbsp;responses, total replies), so it
+                        can&apos;t be inflated by a few early replies. Once reached, the next scenario stays unlocked.
                       </span>
                     </label>
                   </div>
                   {scenario.masteryEnabled && (
-                    <div className="mt-3 ml-7 flex items-center gap-2">
-                      <label htmlFor={`mastery-threshold-${scenario.id}`} className="text-xs text-gray-600">
-                        Streak needed to advance
-                      </label>
-                      <input
-                        id={`mastery-threshold-${scenario.id}`}
-                        type="number"
-                        min={1}
-                        value={scenario.masteryThreshold ?? 5}
-                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'masteryThreshold', Math.max(1, parseInt(e.target.value) || 1))}
-                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-                      />
+                    <div className="mt-3 ml-7 flex flex-wrap items-center gap-x-4 gap-y-2">
+                      <div className="flex items-center gap-2">
+                        <label htmlFor={`mastery-target-${scenario.id}`} className="text-xs text-gray-600">
+                          Target rate (%)
+                        </label>
+                        <input
+                          id={`mastery-target-${scenario.id}`}
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={scenario.masteryTargetRate ?? 80}
+                          onChange={(e) => handleUpdateScenario(scenarioIndex, 'masteryTargetRate', Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                          className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label htmlFor={`mastery-min-${scenario.id}`} className="text-xs text-gray-600">
+                          Min responses
+                        </label>
+                        <input
+                          id={`mastery-min-${scenario.id}`}
+                          type="number"
+                          min={1}
+                          value={scenario.masteryMinResponses ?? 20}
+                          onChange={(e) => handleUpdateScenario(scenarioIndex, 'masteryMinResponses', Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                      </div>
                     </div>
                   )}
                 </div>

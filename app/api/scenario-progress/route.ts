@@ -17,13 +17,25 @@ export async function GET(request: NextRequest) {
       where: eq(scenarioProgress.userId, userId)
     });
 
-    const progressMap: Record<number, { scenarioId: number; firstVisitedAt: Date; lastVisitedAt: Date; visitCount: number }> = {};
+    const progressMap: Record<number, {
+      scenarioId: number; firstVisitedAt: Date; lastVisitedAt: Date; visitCount: number;
+      protectiveCount: number; neutralCount: number; vulnerableCount: number;
+      protectiveRate: number | null; masteryReachedAt: number | null;
+      comfortExitAt: number | null; completedAt: number | null;
+    }> = {};
     (data || []).forEach(row => {
       progressMap[row.scenarioId] = {
         scenarioId: row.scenarioId,
         firstVisitedAt: new Date(row.firstVisitedAt),
         lastVisitedAt: new Date(row.lastVisitedAt),
         visitCount: row.visitCount,
+        protectiveCount: row.protectiveCount,
+        neutralCount: row.neutralCount,
+        vulnerableCount: row.vulnerableCount,
+        protectiveRate: row.protectiveRate ?? null,
+        masteryReachedAt: row.masteryReachedAt ? row.masteryReachedAt.getTime() : null,
+        comfortExitAt: row.comfortExitAt ? row.comfortExitAt.getTime() : null,
+        completedAt: row.completedAt ? row.completedAt.getTime() : null,
       };
     });
 
@@ -74,6 +86,49 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error tracking scenario visit:', error);
     return NextResponse.json({ error: 'Failed to track scenario visit' }, { status: 500 });
+  }
+}
+
+// PATCH - Record a lifecycle exit for a scenario: 'completed' (final-scenario "End Chat")
+// or 'comfort_exit' ("I don't feel comfortable anymore."). Stamps the matching timestamp.
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { userId, scenarioId, kind } = body;
+
+    if (!userId || !scenarioId || (kind !== 'completed' && kind !== 'comfort_exit')) {
+      return NextResponse.json({ error: 'Missing or invalid fields' }, { status: 400 });
+    }
+
+    const now = new Date();
+    const stamp = kind === 'completed' ? { completedAt: now } : { comfortExitAt: now };
+
+    const existing = await db.query.scenarioProgress.findFirst({
+      where: and(
+        eq(scenarioProgress.userId, userId),
+        eq(scenarioProgress.scenarioId, scenarioId)
+      )
+    });
+
+    if (existing) {
+      await db.update(scenarioProgress)
+        .set(stamp)
+        .where(eq(scenarioProgress.id, existing.id));
+    } else {
+      await db.insert(scenarioProgress).values({
+        userId,
+        scenarioId,
+        firstVisitedAt: now,
+        lastVisitedAt: now,
+        visitCount: 1,
+        ...stamp,
+      });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error recording scenario lifecycle:', error);
+    return NextResponse.json({ error: 'Failed to record scenario lifecycle' }, { status: 500 });
   }
 }
 

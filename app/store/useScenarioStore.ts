@@ -48,14 +48,21 @@ export interface Message {
   carried?: boolean;
 }
 
-// Resilience score = proportion of protective vs vulnerable participant responses
-// (Evaluation Plan §5.2). Neutral replies are excluded from the ratio.
-export function computeResilience(messages: Message[]): {
+// Protective Response Rate = protective / Max(minResponses, protective+neutral+vulnerable)
+// (Evaluation Plan §6, L137). Unlike the old resilience ratio, neutral replies ARE counted
+// in the denominator, and the Max(minResponses, …) floor (default minResponses = 20) stops
+// a few strong early replies from inflating the rate. The §6.1a gate unlocks the next
+// scenario once this reaches the scenario's target (e.g. 80%). Carried-over (prior-scenario)
+// and unclassified replies are excluded.
+export function computeProtectiveRate(
+  messages: Message[],
+  minResponses: number
+): {
   protective: number;
   neutral: number;
   vulnerable: number;
   classified: number;
-  score: number | null;
+  rate: number;
 } {
   let protective = 0, neutral = 0, vulnerable = 0;
   for (const m of messages) {
@@ -65,41 +72,15 @@ export function computeResilience(messages: Message[]): {
     else if (m.classification === 'vulnerable') vulnerable++;
     else neutral++;
   }
-  const denom = protective + vulnerable;
+  const total = protective + neutral + vulnerable;
+  const denom = Math.max(minResponses > 0 ? minResponses : 1, total);
   return {
     protective,
     neutral,
     vulnerable,
-    classified: protective + neutral + vulnerable,
-    score: denom > 0 ? protective / denom : null,
+    classified: total,
+    rate: denom > 0 ? protective / denom : 0,
   };
-}
-
-// Mastery streak = consecutive non-vulnerable (protective/neutral) participant replies.
-// A `vulnerable` reply resets the streak to 0. Carried-over (prior-scenario) and
-// unclassified replies are skipped.
-export function computeStreak(messages: Message[]): number {
-  let streak = 0;
-  for (const m of messages) {
-    if (m.carried) continue;
-    if (m.sender !== 'user' || !m.classification) continue;
-    if (m.classification === 'vulnerable') streak = 0;
-    else streak += 1;
-  }
-  return streak;
-}
-
-// Like computeStreak, but returns the labels of the current run (in order) so the UI can
-// color each streak segment by whether that reply was protective or neutral.
-export function computeStreakLabels(messages: Message[]): ResponseLabel[] {
-  const run: ResponseLabel[] = [];
-  for (const m of messages) {
-    if (m.carried) continue;
-    if (m.sender !== 'user' || !m.classification) continue;
-    if (m.classification === 'vulnerable') run.length = 0;
-    else run.push(m.classification);
-  }
-  return run;
 }
 
 export interface GroomingStage {
@@ -183,6 +164,11 @@ export interface Scenario {
   // escalates past it. 6 = no cap.
   maxStage: number;
   masteryEnabled: boolean;
+  // Protective Response Rate gate (§6): the target % that unlocks the next scenario, and
+  // the denominator floor for computeProtectiveRate (protective / Max(minResponses, total)).
+  masteryTargetRate: number;
+  masteryMinResponses: number;
+  // LEGACY streak threshold — no longer used by the gate (kept for backward compat only).
   masteryThreshold: number;
   persistMessages: boolean;
 }
@@ -192,6 +178,30 @@ export interface ScenarioProgress {
   firstVisitedAt: Date;
   lastVisitedAt: Date;
   visitCount: number;
+  // Server-computed Protective Response Rate snapshot (§6, L248 logging).
+  protectiveCount?: number;
+  neutralCount?: number;
+  vulnerableCount?: number;
+  protectiveRate?: number | null;
+  // First time the learner's rate met the scenario target — sticky: once set, the next
+  // scenario stays unlocked even if the rate later dips.
+  masteryReachedAt?: Date | null;
+  // Voluntary exit ("I don't feel comfortable anymore.") / final-scenario "End Chat".
+  comfortExitAt?: Date | null;
+  completedAt?: Date | null;
+}
+
+// The Protective Response Rate snapshot the server recomputes and returns when a reply is
+// classified (timestamps are serialized as epoch ms). masteryReachedAt flips from null to a
+// timestamp the first time the rate meets the scenario target — the chat page watches for
+// that transition to show the congratulations modal.
+export interface ProgressUpdate {
+  scenarioId: number;
+  protectiveCount: number;
+  neutralCount: number;
+  vulnerableCount: number;
+  protectiveRate: number | null;
+  masteryReachedAt: number | null;
 }
 
 export interface AuthUser {
@@ -248,7 +258,7 @@ interface ScenarioStore {
     scenarioId: number,
     messageId: string,
     payload: { classification: ResponseLabel; responseType: ResponseType; tacticRecognized: boolean; protectiveStrategy: boolean; rationale: string }
-  ) => Promise<void>;
+  ) => Promise<ProgressUpdate | null>;
   savePreviewEvent: (
     scenarioId: number,
     payload: { draftText: string; feedbackText: string; classification?: ResponseLabel; responseType?: ResponseType; stage?: number }
@@ -256,6 +266,7 @@ interface ScenarioStore {
   loadUserMessages: (scenarioId: number) => Promise<Message[]>;
   loadUserFeedbacks: (scenarioId: number) => Promise<Map<string, string>>;
   recordScenarioVisit: (scenarioId: number) => Promise<void>;
+  recordScenarioLifecycle: (scenarioId: number, kind: 'completed' | 'comfort_exit') => Promise<void>;
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
   resetScenarioProgress: (scenarioId: number) => Promise<void>;
   setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null, seededStage?: number | null) => void;
@@ -520,16 +531,20 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       saveResponseClassification: async (scenarioId, messageId, payload) => {
         const { userId } = get();
-        if (!userId) return;
+        if (!userId) return null;
 
         try {
-          await fetch('/api/messages', {
+          const res = await fetch('/api/messages', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId, scenarioId, messageId, ...payload }),
           });
+          if (!res.ok) return null;
+          const data = await res.json();
+          return (data?.progress ?? null) as ProgressUpdate | null;
         } catch (error) {
           console.error('Error saving classification:', error);
+          return null;
         }
       },
 
@@ -610,6 +625,24 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      // Record a lifecycle exit for this scenario: 'completed' (final-scenario "End Chat")
+      // or 'comfort_exit' ("I don't feel comfortable anymore."). Stamps the matching
+      // timestamp column on scenario_progress for downstream research analysis.
+      recordScenarioLifecycle: async (scenarioId, kind) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        try {
+          await fetch('/api/scenario-progress', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, scenarioId, kind }),
+          });
+        } catch (error) {
+          console.error('Error recording scenario lifecycle:', error);
+        }
+      },
+
       loadScenarioProgress: async () => {
         const { userId } = get();
         if (!userId) return new Map();
@@ -625,12 +658,24 @@ export const useScenarioStore = create<ScenarioStore>()(
           const progressMap = new Map<number, ScenarioProgress>();
 
           Object.entries(progressData).forEach(([scenarioId, progress]) => {
-            const prog = progress as { scenarioId: number; firstVisitedAt: string; lastVisitedAt: string; visitCount: number };
+            const prog = progress as {
+              scenarioId: number; firstVisitedAt: string; lastVisitedAt: string; visitCount: number;
+              protectiveCount?: number; neutralCount?: number; vulnerableCount?: number;
+              protectiveRate?: number | null; masteryReachedAt?: number | null;
+              comfortExitAt?: number | null; completedAt?: number | null;
+            };
             progressMap.set(parseInt(scenarioId), {
               scenarioId: prog.scenarioId,
               firstVisitedAt: new Date(prog.firstVisitedAt),
               lastVisitedAt: new Date(prog.lastVisitedAt),
               visitCount: prog.visitCount,
+              protectiveCount: prog.protectiveCount,
+              neutralCount: prog.neutralCount,
+              vulnerableCount: prog.vulnerableCount,
+              protectiveRate: prog.protectiveRate ?? null,
+              masteryReachedAt: prog.masteryReachedAt ? new Date(prog.masteryReachedAt) : null,
+              comfortExitAt: prog.comfortExitAt ? new Date(prog.comfortExitAt) : null,
+              completedAt: prog.completedAt ? new Date(prog.completedAt) : null,
             });
           });
 

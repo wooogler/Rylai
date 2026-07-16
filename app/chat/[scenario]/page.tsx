@@ -4,11 +4,12 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback } from "react
 import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, GROOMING_STAGES, computeResilience, computeStreak, computeStreakLabels } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeProtectiveRate } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import FeedbackComment from "../FeedbackComment";
+import CongratsModal from "../CongratsModal";
 import Button from "@/components/Button";
 
 interface PreviewFeedback {
@@ -65,6 +66,7 @@ export default function ChatPage() {
     loadUserMessages,
     loadUserFeedbacks,
     recordScenarioVisit,
+    recordScenarioLifecycle,
     loadScenarioProgress,
     resetScenarioProgress,
     setVtSession,
@@ -97,6 +99,10 @@ export default function ChatPage() {
   const [predictedStage, setPredictedStage] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  // Protective Response Rate gate (§6): the congratulations modal shown once the target is
+  // first reached, and the "ended" banner after the learner ends the chat / exits.
+  const [showCongrats, setShowCongrats] = useState(false);
+  const [endedReason, setEndedReason] = useState<'completed' | 'comfort_exit' | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -309,18 +315,21 @@ export default function ChatPage() {
         ));
       }
 
-      // Save feedback + classification for learners
+      // Save feedback + classification for learners (and admin previews under their own id).
       if (userId) {
         try {
           await saveUserFeedback(scenarios[currentScenario].id, target.id, data.feedback);
           if (hasClassification) {
-            await saveResponseClassification(scenarios[currentScenario].id, target.id, {
+            const progress = await saveResponseClassification(scenarios[currentScenario].id, target.id, {
               classification: data.classification,
               responseType: data.responseType ?? 'none',
               tacticRecognized: !!data.tacticRecognized,
               protectiveStrategy: !!data.protectiveStrategy,
               rationale: data.rationale ?? '',
             });
+            // Server recomputes the scenario's Protective Response Rate; sync it and, if the
+            // target was just reached, show the congratulations modal.
+            if (progress) applyProgressUpdate(progress);
           }
         } catch (error) {
           console.error('Failed to save feedback/classification:', error);
@@ -336,7 +345,7 @@ export default function ChatPage() {
   };
 
   const handleSendResponse = async () => {
-    if (!responseText.trim() || isBusy) return;
+    if (!responseText.trim() || isBusy || endedReason) return;
 
     const textToSend = responseText;
     setResponseText("");
@@ -518,6 +527,49 @@ export default function ChatPage() {
     setPreviewFeedback(null);
     setPreviewText('');
     setPreviewPending(false);
+    setShowCongrats(false);
+    setEndedReason(null);
+  };
+
+  // --- Protective Response Rate gate helpers (§6) --------------------------------
+  // Whether the learner has satisfied a scenario's gate: the server's sticky
+  // masteryReachedAt (survives later dips) OR the current rate already meets the target.
+  const computeMasteryMet = (sc: Scenario): boolean => {
+    if (scenarioProgressMap.get(sc.id)?.masteryReachedAt) return true;
+    const info = computeProtectiveRate(messages, sc.masteryMinResponses ?? 20);
+    return Math.round(info.rate * 100) >= (sc.masteryTargetRate ?? 80);
+  };
+
+  // Merge a server progress snapshot into the local map, and pop the congratulations modal
+  // on the null->reached transition (learners only, when the gate is enabled).
+  const applyProgressUpdate = (progress: ProgressUpdate) => {
+    const sid = progress.scenarioId;
+    const wasReached = !!scenarioProgressMap.get(sid)?.masteryReachedAt;
+    const nowReached = progress.masteryReachedAt != null;
+    setScenarioProgressMap(prev => {
+      const next = new Map(prev);
+      const cur = next.get(sid);
+      next.set(sid, {
+        ...(cur ?? { scenarioId: sid, firstVisitedAt: new Date(), lastVisitedAt: new Date(), visitCount: 1 }),
+        protectiveCount: progress.protectiveCount,
+        neutralCount: progress.neutralCount,
+        vulnerableCount: progress.vulnerableCount,
+        protectiveRate: progress.protectiveRate,
+        masteryReachedAt: progress.masteryReachedAt ? new Date(progress.masteryReachedAt) : (cur?.masteryReachedAt ?? null),
+      });
+      return next;
+    });
+    const sc = scenarios.find(s => s.id === sid);
+    if (!wasReached && nowReached && userType === 'user' && sc?.masteryEnabled && sid === scenario?.id) {
+      setShowCongrats(true);
+    }
+  };
+
+  // End the conversation via the final-scenario "End Chat" action (§6, L171).
+  const endChat = () => {
+    setShowCongrats(false);
+    setEndedReason('completed');
+    if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
   };
 
   const handlePreviousScenario = () => {
@@ -528,14 +580,17 @@ export default function ChatPage() {
       setMessages(scenarios[prevScenario].persistMessages ? [] : scenarios[prevScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
+      setShowCongrats(false);
+      setEndedReason(null);
       clearFeedbackUiState();
     }
   };
 
   const handleNextScenario = () => {
-    // Mastery gate: learners must reach the streak before advancing.
+    // Protective Response Rate gate: learners must reach the target before advancing
+    // (educators are never gated).
     const sc = scenarios[currentScenario];
-    if (sc?.masteryEnabled && userType === 'user' && computeStreak(messages) < sc.masteryThreshold) {
+    if (sc?.masteryEnabled && userType === 'user' && !computeMasteryMet(sc)) {
       return;
     }
     if (currentScenario < scenarios.length - 1) {
@@ -545,6 +600,8 @@ export default function ChatPage() {
       setMessages(scenarios[nextScenario].persistMessages ? [] : scenarios[nextScenario].presetMessages);
       setResponseText("");
       setIsTyping(false);
+      setShowCongrats(false);
+      setEndedReason(null);
       clearFeedbackUiState();
     }
   };
@@ -680,16 +737,19 @@ export default function ChatPage() {
   // Stage shown in the chat header (read-only): predicted stage when auto, else fixed.
   const headerStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
   const headerStageInfo = GROOMING_STAGES.find(s => s.stage === headerStage);
-  // Resilience score over the participant's classified replies (display only).
-  const resilience = computeResilience(messages);
-  // Mastery: consecutive non-vulnerable replies in this scenario (carried-over excluded).
-  const streakLabels = computeStreakLabels(messages);
-  const streak = streakLabels.length;
-  const mastered = streak >= scenario.masteryThreshold;
-  // The learner can't advance until they reach the streak (admins are not gated).
-  const masteryLocked = scenario.masteryEnabled && userType === 'user' && !mastered;
+  // Protective Response Rate over the participant's classified replies (§6). The gate target
+  // and the Max(minResponses, …) denominator floor come from the scenario config.
+  const target = scenario.masteryTargetRate ?? 80;
+  const rateInfo = computeProtectiveRate(messages, scenario.masteryMinResponses ?? 20);
+  const ratePct = Math.round(rateInfo.rate * 100);
+  // Sticky once the server records the target being reached (survives later dips).
+  const reachedSticky = !!scenarioProgressMap.get(scenario.id)?.masteryReachedAt;
+  const masteryMet = reachedSticky || ratePct >= target;
+  // The learner can't advance until they meet the target (admins are not gated).
+  const masteryLocked = scenario.masteryEnabled && userType === 'user' && !masteryMet;
   // Show the lock hint only when there's actually a next scenario to unlock.
   const showLockTip = masteryLocked && currentScenario < scenarios.length - 1;
+  const isLastScenario = currentScenario === scenarios.length - 1;
 
   // Messages with an anchored comment card in the gutter.
   const commentMessages = messages.filter(
@@ -782,63 +842,33 @@ export default function ChatPage() {
                     </div>
                   )}
                 </div>
-                {scenario.masteryEnabled ? (
+                {(scenario.masteryEnabled || rateInfo.classified > 0) ? (
                   <div className="relative group">
-                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium cursor-help ${
-                      mastered ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
+                    <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-help ${
+                      masteryMet ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
                     }`}>
-                      <span>{mastered ? 'Mastered' : 'Streak'}</span>
-                      <span className="flex items-center gap-1">
-                        {Array.from({ length: scenario.masteryThreshold }).map((_, i) => {
-                          const lbl = streakLabels[i];
-                          return (
-                            <span
-                              key={i}
-                              className={`h-2 w-4 rounded-full ${
-                                lbl === 'protective' ? 'bg-green-500'
-                                  : lbl === 'neutral' ? 'bg-amber-400'
-                                  : 'bg-gray-200'
-                              }`}
-                            />
-                          );
-                        })}
-                      </span>
-                      <span>{Math.min(streak, scenario.masteryThreshold)} / {scenario.masteryThreshold}</span>
-                      {mastered && <Check className="w-3.5 h-3.5" />}
+                      <span>Protective Response Rate: {ratePct}%</span>
+                      {scenario.masteryEnabled && <span className="opacity-70">/ {target}%</span>}
+                      {masteryMet && <Check className="w-3.5 h-3.5" />}
                     </div>
                     <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-80 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
-                      <div className="font-semibold mb-1">Mastery streak</div>
-                      <div className="text-gray-200 leading-snug">
-                        Build a streak of <span className="font-semibold">{scenario.masteryThreshold}</span> safe replies in a row
-                        (<span className="text-green-300">protective</span> or <span className="text-amber-300">neutral</span>) to
-                        unlock the next scenario. A <span className="text-red-300">risky</span> reply resets the streak to zero.
-                      </div>
-                      <div className="text-gray-300 mt-1.5">
-                        Each segment shows a reply in your streak — <span className="text-green-300">green</span> is protective,{' '}
-                        <span className="text-amber-300">amber</span> is neutral.
-                      </div>
-                    </div>
-                  </div>
-                ) : resilience.classified > 0 ? (
-                  <div className="relative group">
-                    <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 cursor-help">
-                      Resilience: {resilience.score !== null ? `${Math.round(resilience.score * 100)}%` : '—'}
-                    </div>
-                    <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-80 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
-                      <div className="font-semibold mb-1">Resilience score</div>
+                      <div className="font-semibold mb-1">Protective Response Rate</div>
                       <div className="text-gray-200 leading-snug">
                         <span className="font-semibold">How it&apos;s calculated:</span> every reply you send is rated{' '}
                         <span className="text-green-300">protective</span>, <span className="text-amber-300">neutral</span>, or{' '}
-                        <span className="text-red-300">risky</span>. The score is the percentage of protective replies out of
-                        protective + risky (neutral replies don&apos;t count).
+                        <span className="text-red-300">risky</span>. Your rate is protective replies ÷ the larger of{' '}
+                        <span className="font-semibold">{scenario.masteryMinResponses ?? 20}</span> or your total replies — so a
+                        few early replies can&apos;t inflate it.
                       </div>
-                      <div className="text-gray-200 leading-snug mt-1.5">
-                        <span className="font-semibold">How it&apos;s used:</span> it shows how consistently you spot and resist
-                        grooming tactics, and your educator and the research team use it to track your progress. Keep it high by
-                        responding safely.
-                      </div>
+                      {scenario.masteryEnabled && (
+                        <div className="text-gray-200 leading-snug mt-1.5">
+                          Reach <span className="font-semibold">{target}%</span> to unlock the next scenario. You can keep
+                          practicing after that if you like.
+                        </div>
+                      )}
                       <div className="text-gray-300 mt-2">
-                        Protective {resilience.protective} · Neutral {resilience.neutral} · Vulnerable {resilience.vulnerable}
+                        Protective {rateInfo.protective} · Neutral {rateInfo.neutral} · Vulnerable {rateInfo.vulnerable} ·
+                        Replies {rateInfo.classified}
                       </div>
                     </div>
                   </div>
@@ -896,8 +926,16 @@ export default function ChatPage() {
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Chat Input */}
+            {/* Chat Input (replaced by an ended banner once the learner ends/exits) */}
             <div className="bg-white border-t border-gray-200 px-6 py-4 rounded-b-lg">
+              {endedReason ? (
+                <div className="flex items-center justify-center gap-2 py-2 text-center text-sm text-gray-600">
+                  <Check className="h-4 w-4 flex-shrink-0 text-emerald-600" />
+                  {endedReason === 'completed'
+                    ? "You've ended this conversation — nice work! Use Reset to start over."
+                    : "You've ended this conversation. It's okay to step away anytime."}
+                </div>
+              ) : (
               <div className="relative">
                 <div className={`relative ${responseText.trim() && !isBusy ? 'ring-2 ring-gray-400 ring-offset-2 rounded-full transition-all' : ''}`}>
                   <input
@@ -942,6 +980,7 @@ export default function ChatPage() {
                   )}
                 </div>
               </div>
+              )}
             </div>
           </div>
 
@@ -1055,17 +1094,27 @@ export default function ChatPage() {
               </Button>
               {showLockTip && (
                 <div className="absolute z-50 hidden group-hover:block bottom-full right-0 mb-2 w-64 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
-                  <div className="font-semibold mb-1">Locked until mastery</div>
+                  <div className="font-semibold mb-1">Locked until you reach {target}%</div>
                   <div className="text-gray-200 leading-snug">
-                    Reach a streak of <span className="font-semibold">{scenario.masteryThreshold}</span> safe replies in a row
-                    (<span className="text-green-300">protective</span> or <span className="text-amber-300">neutral</span>) to
-                    unlock the next scenario. You&apos;re at <span className="font-semibold">{streak}</span> / {scenario.masteryThreshold}.
+                    Keep replying safely to raise your <span className="font-semibold">Protective Response Rate</span> to{' '}
+                    <span className="font-semibold">{target}%</span> and unlock the next scenario. You&apos;re at{' '}
+                    <span className="font-semibold">{ratePct}%</span>.
                   </div>
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {showCongrats && (
+          <CongratsModal
+            targetPct={target}
+            isLast={isLastScenario}
+            onContinue={() => setShowCongrats(false)}
+            onNext={handleNextScenario}
+            onEnd={endChat}
+          />
+        )}
       </div>
     </div>
   );
