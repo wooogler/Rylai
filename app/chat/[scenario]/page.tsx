@@ -11,6 +11,7 @@ import TypingIndicator from "../TypingIndicator";
 import FeedbackComment from "../FeedbackComment";
 import CongratsModal from "../CongratsModal";
 import SplashModal from "../SplashModal";
+import DisclaimerFooter from "../DisclaimerFooter";
 import Button from "@/components/Button";
 
 interface PreviewFeedback {
@@ -1165,6 +1166,8 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+
+        <DisclaimerFooter />
 
         {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
           <SplashModal
