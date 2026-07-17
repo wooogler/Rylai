@@ -255,3 +255,55 @@ interface FeedbackConfig {
    - "I don't feel comfortable anymore." → ended + `comfortExitAt` 기록
    - DB: `scenario_progress`에 카운트/rate/`masteryReachedAt` 적재 확인
 3. **회귀**: 관리자 Export→Import 왕복에 신규 필드 보존, 기존 저장 피드백(평문) 렌더 정상, 관리자 Test Chat 게이트 미적용 유지.
+
+---
+
+## ✅ 구현 완료 현황 (branch: `feature/section6-alignment`)
+
+P0–P6 전부 구현·검증 완료. 각 단계는 `tsc --noEmit` + `eslint` + `next build` 통과 및 격리 DB 런타임 테스트로 검증함.
+
+| 커밋 | 단계 | 요약 |
+|---|---|---|
+| `edfff31` | P0 | 스키마 확장 (마이그레이션 0007) |
+| `e119315` | P1 | 80% Protective Response Rate 게이트 (sticky, 서버 계산·저장, 축하 모달) |
+| `e0739ae` | P2 | 시나리오 2 이월 "3 months later" 구분선 |
+| `6012db7` | P3a | 문서 사양 2개 기본 시나리오 + persist 모드 predator 시작 preset + Restore-defaults |
+| `0868c21` | P3b | 환영 화면(`/welcome`) + 관리자 마크다운 에디터 |
+| `ba0de7d` | P3c | 시나리오 스플래시 모달 (자동표시/ⓘ 재열람) + 관리자 에디터 |
+| `52ed3da` | P3d | 철회 고지 푸터 |
+| `c21a39a` | P4 | 피드백 3파트 구조화 + 파트 토글/탭 표시 + 응답 지연 |
+| `cf28396` | P5 | 스테이지 거버너(5교환·보호응답 비상승) + 안전 종료 + 메시지 호버 제거 |
+| `e5f2c14` | P6a | Access Code 가입 게이트 (마이그레이션 0008) + 관리자 코드 발급 탭 |
+| `e8802a6` | P6b | 평가 전용 챗봇 모드 (6.1b) |
+| `a6bb8b1` | P6c | 교육자 전용 URL (`/<educator>`) |
+
+### 판단 결정 사항 (검토 필요)
+- **가입 후 자동 로그인 유지** (L103의 "로그인 페이지 경유"는 미적용): 현행 자동 로그인이 UX상 낫다고 판단해 유지. 원하면 쉽게 변경 가능.
+- **교육자 전용 URL과 select-user 공존**: `/<educator>`가 교육자를 선택 없이 고정하지만, 기존 `/select-user` 목록 화면은 폴백으로 남겨둠 (완전 제거는 별도 결정 사항).
+- **보호 응답 비상승(L249)**: 방금 보낸 응답의 분류는 비동기라, "가장 최근에 알려진(이전) 분류"를 프록시로 사용 (분류 전에는 미적용). 최소 교환수 거버너가 주 안전장치.
+
+## E2E 테스트 체크리스트 (직접 검증용)
+
+> **사전 준비**: `OPENAI_API_KEY`(피드백)와 `VT_CUSTOM_BASE_URL`(predator 챗봇)이 `.env`에 설정되어 있어야 채팅이 완전히 동작합니다. `ADMIN_PASSCODE`도 필요(교육자 가입). `npm run dev` 후:
+
+**교육자 (admin)**
+1. `ADMIN_PASSCODE`로 가입 → `/admin`. 기본 시나리오 **2개**(Scenario 1/2, 둘 다 Alex, 1–3/4–6단계) 확인.
+2. Scenarios 탭: 환영 화면 에디터(상단), 시나리오별 스플래시 에디터, Target rate/Min responses, 최소 교환수, 시간 구분선, Assessment mode 토글 노출 확인.
+3. Prompts 탭: "Feedback display"(3파트 체크박스 + One message/Separate tabs) 노출.
+4. **Access Codes** 탭: 코드 생성(랜덤/지정 `p1-rylai`) + 목록(unused/used) + 복사/삭제.
+5. Test Chat으로 채팅 진입 → 스플래시 자동 표시, 3파트 피드백, 게이트 미적용(관리자) 확인.
+
+**학습자 (participant)**
+6. 로그아웃 후 **교육자 URL** `/<교육자username>` 접속 → 미인증이면 가입 폼으로(교육자 기억).
+7. 가입 시 **Access code** 필수 — 교육자가 발급한 코드 입력(없으면 거부, 재사용 거부 확인).
+8. 가입/로그인 후 → **환영 화면**(Let's Begin) → **Scenario 1 스플래시**(스크롤) → 채팅.
+9. 채팅: 헤더에 **Protective Response Rate** 배지(`n% / 80%`), 메시지 호버 없음, predator 응답 약간 지연.
+10. 안전하게 응답 반복 → 80% 도달 시 **축하 모달**(Continue Chatting / Next Scenario). 하단 "I don't feel comfortable anymore." 존재.
+11. Next Scenario → **Scenario 2 스플래시** → 채팅 상단에 Scenario 1 대화 + **"3 months later"** 구분선 → predator 재회 인사로 시작.
+12. Scenario 2에서 80% 도달 → 모달의 **End Chat** → 종료 배너.
+13. 하단 **철회 고지 푸터** 상시 표시 확인.
+
+**검증 포인트**
+- `scenario_progress`에 `protective_count/rate/mastery_reached_at`, 종료 시 `completed_at`/`comfort_exit_at` 적재.
+- 관리자 Prompts에서 파트 1개 끄기 → 학습자 피드백에서 해당 파트 사라짐 / "Separate tabs" → 탭 렌더.
+- Assessment mode 시나리오: 스테이지 배지·점수 배지·피드백 없음, N개 메시지 후 종료.
