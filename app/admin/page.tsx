@@ -893,7 +893,7 @@ export default function AdminPage() {
 
               {/* Scenario behavior toggles (bottom, side by side) */}
               <div className="mt-6 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Protective Response Rate gate */}
+                {/* Safe Response Rate gate */}
                 <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
                   <div className="flex items-start gap-3">
                     <input
@@ -905,12 +905,13 @@ export default function AdminPage() {
                     />
                     <label htmlFor={`mastery-${scenario.id}`} className="cursor-pointer">
                       <span className="block text-sm font-medium text-gray-800">
-                        Require a protective response rate to continue
+                        Require a safe response rate to continue
                       </span>
                       <span className="block text-xs text-gray-500">
-                        When on, the learner can&apos;t advance until their Protective Response Rate reaches the
-                        target. The rate is protective replies ÷ Max(min&nbsp;responses, total replies), so it
-                        can&apos;t be inflated by a few early replies. Once reached, the next scenario stays unlocked.
+                        When on, the learner can&apos;t advance until their Safe Response Rate reaches the
+                        target. The rate is safe (protective or neutral) replies ÷ Max(min&nbsp;responses,
+                        total replies) — risky replies delay progress, and a few early replies can&apos;t
+                        inflate it. Once reached, the next scenario stays unlocked.
                       </span>
                     </label>
                   </div>

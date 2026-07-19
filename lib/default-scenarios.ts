@@ -31,8 +31,8 @@ type DefaultScenario = {
 // online stranger ("Alex") twice: an early-stage first meeting (Stages 1–3) and, three
 // months later, a more personal late-stage continuation (Stages 4–6). Scenario 2 carries
 // Scenario 1's conversation forward, shows a "3 months later" separator, then Alex re-opens
-// the (late-stage) conversation via its preset messages. Both gate on an 80% Protective
-// Response Rate. Educators can edit every field, including the splash-screen copy.
+// the (late-stage) conversation via its preset messages. Both gate on an 80% Safe Response
+// Rate. Educators can edit every field, including the splash-screen copy.
 const SCENARIO_1_SPLASH = `## Scenario 1: Meeting Someone New Online
 
 Imagine you're chatting online with someone you just met. Respond as you normally would if this were a real online conversation. Your goal is to stay safe while remaining open to getting to know new people.
@@ -45,7 +45,7 @@ In this scenario, you may encounter behaviors that reflect the **early stages of
 
 ### What will you do?
 
-You will chat naturally with the chatbot. There are no right or wrong responses — respond as you normally would if this were a real online conversation. Your responses will be classified as **protective**, **neutral**, or **vulnerable**, depending on how you responded. Continue chatting until you reach **at least an 80% Protective Response Rate**. This means responding in ways that help keep you safe during the conversation. When you reach 80%, you will be able to move on to the next scenario or continue chatting if you'd like.`;
+You will chat naturally with the chatbot. There are no right or wrong responses — respond as you normally would if this were a real online conversation. Your responses will be classified as **protective**, **neutral**, or **vulnerable**, depending on how you responded. Continue chatting until you reach **at least an 80% Safe Response Rate** (protective and neutral replies both count as safe). This means responding in ways that help keep you safe during the conversation. When you reach 80%, you will be able to move on to the next scenario or continue chatting if you'd like.`;
 
 const SCENARIO_2_SPLASH = `## Scenario 2: An Online Relationship That Has Become More Personal
 
@@ -59,7 +59,7 @@ In this scenario, you may encounter behaviors that reflect the **later stages of
 
 ### What will you do?
 
-Similar to Scenario 1, you will chat naturally with the chatbot. There are no right or wrong responses — respond as you normally would if this were a real online conversation. Your responses will be classified as **protective**, **neutral**, or **vulnerable**, depending on how you responded. Continue chatting until you reach **at least an 80% Protective Response Rate**. This means responding in ways that help keep you safe during the conversation. When you reach 80%, you will be able to move on or continue chatting if you'd like.`;
+Similar to Scenario 1, you will chat naturally with the chatbot. There are no right or wrong responses — respond as you normally would if this were a real online conversation. Your responses will be classified as **protective**, **neutral**, or **vulnerable**, depending on how you responded. Continue chatting until you reach **at least an 80% Safe Response Rate** (protective and neutral replies both count as safe). This means responding in ways that help keep you safe during the conversation. When you reach 80%, you will be able to move on or continue chatting if you'd like.`;
 
 // Scenarios seeded for every new educator (admin) account on signup.
 export const defaultScenarios: DefaultScenario[] = [

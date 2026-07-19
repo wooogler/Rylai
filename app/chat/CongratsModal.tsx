@@ -12,9 +12,9 @@ interface CongratsModalProps {
   onEnd: () => void;
 }
 
-// Shown once, the first time the learner reaches the scenario's Protective Response Rate
-// target (§6, L146 / L171). The system never auto-advances — the learner explicitly chooses
-// to keep practicing, move to the next scenario, or (on the last scenario) end the chat.
+// Shown once, the first time the learner reaches the scenario's Safe Response Rate target
+// (§6, L146 / L171). The system never auto-advances — the learner explicitly chooses to
+// keep practicing, move to the next scenario, or (on the last scenario) end the chat.
 export default function CongratsModal({ targetPct, isLast, onContinue, onNext, onEnd }: CongratsModalProps) {
   const tail = isLast ? "end the conversation" : "move to the next scenario";
 
@@ -30,7 +30,7 @@ export default function CongratsModal({ targetPct, isLast, onContinue, onNext, o
         <div className="px-6 py-5">
           <p className="text-sm leading-relaxed text-gray-700">
             Congratulations, you have reached <span className="font-semibold">{targetPct}%</span> of the
-            protective response rate. You can either continue chatting within this scenario or {tail}.
+            safe response rate. You can either continue chatting within this scenario or {tail}.
           </p>
           <div className="mt-6 flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button variant="ghost" onClick={onContinue}>Continue Chatting</Button>

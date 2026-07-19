@@ -103,13 +103,14 @@ export const scenarios = sqliteTable(
     // both its prediction and the generated content to this cap, so the predator
     // never escalates past it. Default 6 = no cap (matches pre-feature behavior).
     maxStage: integer('max_stage').notNull().default(6),
-    // 80% Protective Response Rate gate (Evaluation Plan §6, L135/L146). When enabled, the
-    // learner must reach `masteryTargetRate`% protective responses before advancing.
+    // 80% Safe Response Rate gate (Evaluation Plan §6, L135/L146; team decision: numerator
+    // = protective + neutral). When enabled, the learner must reach `masteryTargetRate`%
+    // safe responses before advancing.
     masteryEnabled: integer('mastery_enabled', { mode: 'boolean' }).notNull().default(false),
-    // Target protective-response percentage (0–100) that unlocks the next scenario. L146.
+    // Target safe-response percentage (0–100) that unlocks the next scenario. L146.
     masteryTargetRate: integer('mastery_target_rate').notNull().default(80),
-    // Denominator floor for the protective-rate formula: protective / Max(minResponses,
-    // protective+neutral+vulnerable). Stops early replies from inflating the rate. L137.
+    // Denominator floor for the safe-rate formula: (protective+neutral) / Max(minResponses,
+    // total). Stops early replies from inflating the rate. L137.
     masteryMinResponses: integer('mastery_min_responses').notNull().default(20),
     // LEGACY (v3.x consecutive-streak gate, superseded by the masteryTargetRate score
     // gate and no longer read by the app). Kept to avoid a destructive SQLite column drop.
@@ -241,14 +242,15 @@ export const scenarioProgress = sqliteTable(
     firstVisitedAt: integer('first_visited_at', { mode: 'timestamp_ms' }).notNull(),
     lastVisitedAt: integer('last_visited_at', { mode: 'timestamp_ms' }).notNull(),
     visitCount: integer('visit_count').notNull().default(1),
-    // Protective Response Rate snapshot (Evaluation Plan §6, L248 logging). The server
+    // Safe Response Rate snapshot (Evaluation Plan §6, L248 logging; protective_rate keeps
+    // its column name but holds (P+N)/denom). The server
     // recomputes these from user_messages classifications on each classification save;
     // they are never trusted from the client.
     protectiveCount: integer('protective_count').notNull().default(0),
     neutralCount: integer('neutral_count').notNull().default(0),
     vulnerableCount: integer('vulnerable_count').notNull().default(0),
-    // Latest protective rate in [0,1] = protective / Max(minResponses, total). Null until
-    // the first reply is classified.
+    // Latest safe rate in [0,1] = (protective+neutral) / Max(minResponses, total). Null
+    // until the first reply is classified.
     protectiveRate: real('protective_rate'),
     // First time the learner's protective rate met the scenario target. Sticky: once set,
     // the next scenario stays unlocked even if the rate later dips. L33 / L146.

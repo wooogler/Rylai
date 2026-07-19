@@ -113,11 +113,12 @@ export async function PATCH(request: NextRequest) {
         eq(userMessages.messageId, messageId)
       ));
 
-    // Recompute the scenario-level Protective Response Rate from ALL classified replies and
+    // Recompute the scenario-level Safe Response Rate from ALL classified replies and
     // persist the snapshot on scenario_progress — the single source of truth for the §6 gate
-    // (the client-computed value is never trusted). Rate = protective / Max(minResponses,
-    // protective+neutral+vulnerable). masteryReachedAt is sticky: set once the rate first
-    // meets the scenario target, then never cleared (so the next scenario stays unlocked).
+    // (the client-computed value is never trusted). Rate = (protective + neutral) /
+    // Max(minResponses, total): vulnerable replies delay progress, natural chat counts as
+    // safe. masteryReachedAt is sticky: set once the rate first meets the scenario target,
+    // then never cleared (so the next scenario stays unlocked).
     const scenarioRow = await db.query.scenarios.findFirst({ where: eq(scenarios.id, scenarioId) });
     const replies = await db.query.userMessages.findMany({
       where: and(
@@ -136,7 +137,7 @@ export async function PATCH(request: NextRequest) {
     const minResponses = scenarioRow?.masteryMinResponses ?? 20;
     const targetRate = scenarioRow?.masteryTargetRate ?? 80;
     const denom = Math.max(minResponses > 0 ? minResponses : 1, total);
-    const rate = denom > 0 ? p / denom : 0;
+    const rate = denom > 0 ? (p + n) / denom : 0;
     const reachedNow = rate * 100 >= targetRate;
 
     const now = new Date();

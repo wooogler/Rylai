@@ -240,7 +240,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                               return (
                                 <span
                                   key={p.scenarioId}
-                                  title={`${p.scenarioName} — ${started ? `${rate}% protective${reached ? " · target reached" : ""}` : "not started"}`}
+                                  title={`${p.scenarioName} — ${started ? `${rate}% safe${reached ? " · target reached" : ""}` : "not started"}`}
                                   className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
                                     reached
                                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -347,7 +347,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                           )}
                         </div>
                         <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
-                          <div><dt className="text-gray-400">Protective rate</dt><dd className="font-medium text-gray-800">{started ? `${rate ?? 0}%` : "—"}</dd></div>
+                          <div><dt className="text-gray-400">Safe rate</dt><dd className="font-medium text-gray-800">{started ? `${rate ?? 0}%` : "—"}</dd></div>
                           <div><dt className="text-gray-400">Replies (P · N · V)</dt><dd className="font-medium text-gray-800">{p.protectiveCount} · {p.neutralCount} · {p.vulnerableCount}</dd></div>
                           <div><dt className="text-gray-400">Visits</dt><dd className="font-medium text-gray-800">{p.visitCount}</dd></div>
                           <div><dt className="text-gray-400">Target reached</dt><dd className="font-medium text-gray-800">{fmtDate(p.masteryReachedAt)}</dd></div>

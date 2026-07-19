@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } f
 import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeProtectiveRate } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
@@ -127,7 +127,7 @@ export default function ChatPage() {
   const [predictedStage, setPredictedStage] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-  // Protective Response Rate gate (§6): the congratulations modal shown once the target is
+  // Safe Response Rate gate (§6): the congratulations modal shown once the target is
   // first reached, and the "ended" banner after the learner ends the chat / exits.
   const [showCongrats, setShowCongrats] = useState(false);
   const [endedReason, setEndedReason] = useState<'completed' | 'comfort_exit' | null>(null);
@@ -384,7 +384,7 @@ export default function ChatPage() {
               protectiveStrategy: !!data.protectiveStrategy,
               rationale: data.rationale ?? '',
             });
-            // Server recomputes the scenario's Protective Response Rate; sync it and, if the
+            // Server recomputes the scenario's Safe Response Rate; sync it and, if the
             // target was just reached, show the congratulations modal.
             if (progress) applyProgressUpdate(progress);
           }
@@ -615,12 +615,12 @@ export default function ChatPage() {
     setEndedReason(null);
   };
 
-  // --- Protective Response Rate gate helpers (§6) --------------------------------
+  // --- Safe Response Rate gate helpers (§6) --------------------------------
   // Whether the learner has satisfied a scenario's gate: the server's sticky
   // masteryReachedAt (survives later dips) OR the current rate already meets the target.
   const computeMasteryMet = (sc: Scenario): boolean => {
     if (scenarioProgressMap.get(sc.id)?.masteryReachedAt) return true;
-    const info = computeProtectiveRate(messages, sc.masteryMinResponses ?? 20);
+    const info = computeSafeRate(messages, sc.masteryMinResponses ?? 20);
     return Math.round(info.rate * 100) >= (sc.masteryTargetRate ?? 80);
   };
 
@@ -679,7 +679,7 @@ export default function ChatPage() {
   };
 
   const handleNextScenario = () => {
-    // Protective Response Rate gate: learners must reach the target before advancing
+    // Safe Response Rate gate: learners must reach the target before advancing
     // (educators are never gated).
     const sc = scenarios[currentScenario];
     if (sc?.masteryEnabled && userType === 'user' && !computeMasteryMet(sc)) {
@@ -837,10 +837,10 @@ export default function ChatPage() {
   // Stage shown in the chat header (read-only): predicted stage when auto, else fixed.
   const headerStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
   const headerStageInfo = GROOMING_STAGES.find(s => s.stage === headerStage);
-  // Protective Response Rate over the participant's classified replies (§6). The gate target
+  // Safe Response Rate over the participant's classified replies (§6). The gate target
   // and the Max(minResponses, …) denominator floor come from the scenario config.
   const target = scenario.masteryTargetRate ?? 80;
-  const rateInfo = computeProtectiveRate(messages, scenario.masteryMinResponses ?? 20);
+  const rateInfo = computeSafeRate(messages, scenario.masteryMinResponses ?? 20);
   const ratePct = Math.round(rateInfo.rate * 100);
   // Sticky once the server records the target being reached (survives later dips).
   const reachedSticky = !!scenarioProgressMap.get(scenario.id)?.masteryReachedAt;
@@ -960,16 +960,16 @@ export default function ChatPage() {
                     <div className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium cursor-help ${
                       masteryMet ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
                     }`}>
-                      <span>Protective Response Rate: {ratePct}%</span>
+                      <span>Safe Response Rate: {ratePct}%</span>
                       {scenario.masteryEnabled && <span className="opacity-70">/ {target}%</span>}
                       {masteryMet && <Check className="w-3.5 h-3.5" />}
                     </div>
                     <div className="absolute z-50 hidden group-hover:block top-full left-0 mt-2 w-80 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
-                      <div className="font-semibold mb-1">Protective Response Rate</div>
+                      <div className="font-semibold mb-1">Safe Response Rate</div>
                       <div className="text-gray-200 leading-snug">
                         <span className="font-semibold">How it&apos;s calculated:</span> every reply you send is rated{' '}
                         <span className="text-green-300">protective</span>, <span className="text-amber-300">neutral</span>, or{' '}
-                        <span className="text-red-300">risky</span>. Your rate is protective replies ÷ the larger of{' '}
+                        <span className="text-red-300">risky</span>. Your rate is safe replies (protective or neutral) ÷ the larger of{' '}
                         <span className="font-semibold">{scenario.masteryMinResponses ?? 20}</span> or your total replies — so a
                         few early replies can&apos;t inflate it.
                       </div>
@@ -1233,7 +1233,7 @@ export default function ChatPage() {
                 <div className="absolute z-50 hidden group-hover:block bottom-full right-0 mb-2 w-64 p-3 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl">
                   <div className="font-semibold mb-1">Locked until you reach {target}%</div>
                   <div className="text-gray-200 leading-snug">
-                    Keep replying safely to raise your <span className="font-semibold">Protective Response Rate</span> to{' '}
+                    Keep replying safely to raise your <span className="font-semibold">Safe Response Rate</span> to{' '}
                     <span className="font-semibold">{target}%</span> and unlock the next scenario. You&apos;re at{' '}
                     <span className="font-semibold">{ratePct}%</span>.
                   </div>

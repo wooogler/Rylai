@@ -48,13 +48,16 @@ export interface Message {
   carried?: boolean;
 }
 
-// Protective Response Rate = protective / Max(minResponses, protective+neutral+vulnerable)
-// (Evaluation Plan §6, L137). Unlike the old resilience ratio, neutral replies ARE counted
-// in the denominator, and the Max(minResponses, …) floor (default minResponses = 20) stops
-// a few strong early replies from inflating the rate. The §6.1a gate unlocks the next
-// scenario once this reaches the scenario's target (e.g. 80%). Carried-over (prior-scenario)
+// Safe Response Rate = (protective + neutral) / Max(minResponses, total classified replies).
+// The §6.1a mastery gate unlocks the next scenario once this reaches the scenario's target
+// (e.g. 80%): vulnerable replies are what delay progress, while natural (neutral) chat
+// counts as safe — matching the task instruction "respond as you normally would; your goal
+// is to stay safe". The Max(minResponses, …) floor (default 20) stops a few early replies
+// from inflating the rate. (Team decision superseding the doc's L137 protective-only
+// numerator, which made 80% unreachable in natural conversation; the §5.2 research metric
+// P/(P+V) stays computable from the logged per-label counts.) Carried-over (prior-scenario)
 // and unclassified replies are excluded.
-export function computeProtectiveRate(
+export function computeSafeRate(
   messages: Message[],
   minResponses: number
 ): {
@@ -79,7 +82,7 @@ export function computeProtectiveRate(
     neutral,
     vulnerable,
     classified: total,
-    rate: denom > 0 ? protective / denom : 0,
+    rate: denom > 0 ? (protective + neutral) / denom : 0,
   };
 }
 
@@ -164,8 +167,8 @@ export interface Scenario {
   // escalates past it. 6 = no cap.
   maxStage: number;
   masteryEnabled: boolean;
-  // Protective Response Rate gate (§6): the target % that unlocks the next scenario, and
-  // the denominator floor for computeProtectiveRate (protective / Max(minResponses, total)).
+  // Safe Response Rate gate (§6): the target % that unlocks the next scenario, and the
+  // denominator floor for computeSafeRate ((protective+neutral) / Max(minResponses, total)).
   masteryTargetRate: number;
   masteryMinResponses: number;
   // LEGACY streak threshold — no longer used by the gate (kept for backward compat only).
@@ -190,7 +193,8 @@ export interface ScenarioProgress {
   firstVisitedAt: Date;
   lastVisitedAt: Date;
   visitCount: number;
-  // Server-computed Protective Response Rate snapshot (§6, L248 logging).
+  // Server-computed Safe Response Rate snapshot (§6, L248 logging). protectiveRate keeps
+  // its wire/column name but holds the safe rate ((P+N)/denom).
   protectiveCount?: number;
   neutralCount?: number;
   vulnerableCount?: number;
@@ -203,7 +207,7 @@ export interface ScenarioProgress {
   completedAt?: Date | null;
 }
 
-// The Protective Response Rate snapshot the server recomputes and returns when a reply is
+// The Safe Response Rate snapshot the server recomputes and returns when a reply is
 // classified (timestamps are serialized as epoch ms). masteryReachedAt flips from null to a
 // timestamp the first time the rate meets the scenario target — the chat page watches for
 // that transition to show the congratulations modal.
