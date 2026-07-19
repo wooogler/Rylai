@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check, Link2, X } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X, Eye } from "lucide-react";
 
 // Per-scenario progress summary for the participant who redeemed a code (server-computed
 // from scenario_progress — see /api/access-codes GET).
@@ -32,6 +32,8 @@ interface AccessCode {
 
 const pct = (rate: number | null) => (rate === null ? null : Math.round(rate * 100));
 const fmtDate = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : "—");
+const fmtDay = (ms: number | null) =>
+  ms ? new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
 
 // Participant access-code management (Evaluation Plan §6, L101–102). Educators issue codes /
 // invite links here; learners must present an unused code to sign up, which then consumes it.
@@ -83,8 +85,13 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
     }
   };
 
-  const remove = async (id: string) => {
-    await fetch(`/api/access-codes?id=${id}&educatorId=${educatorId}`, { method: "DELETE" });
+  const remove = async (c: AccessCode) => {
+    if (c.usedByUserId && !confirm(
+      `Delete code ${c.code}?\n\nIt was redeemed by "${c.usedByUsername}". Deleting the code does NOT delete their account or data — only this code record (and its row here).`
+    )) {
+      return;
+    }
+    await fetch(`/api/access-codes?id=${c.id}&educatorId=${educatorId}`, { method: "DELETE" });
     load();
   };
 
@@ -100,7 +107,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
     setTimeout(() => setCopied(null), 1200);
   };
 
-  const unused = codes.filter((c) => !c.usedByUserId).length;
+  const usedCount = codes.filter((c) => !!c.usedByUserId).length;
 
   return (
     <div className="space-y-6">
@@ -159,106 +166,140 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
 
       {/* List */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800">Codes</h3>
-          <span className="text-sm text-gray-500">{unused} unused · {codes.length} total</span>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              {usedCount} joined
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-500">
+              <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+              {codes.length - usedCount} unused
+            </span>
+          </div>
         </div>
         {codes.length === 0 ? (
           <p className="text-sm text-gray-400 italic">No access codes yet.</p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-2">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                  <th className="py-2 pr-4">Code</th>
-                  <th className="py-2 pr-4">Status</th>
-                  <th className="py-2 pr-4">Progress</th>
-                  <th className="py-2 pr-4"></th>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-400">
+                  <th className="px-2 pb-2 font-medium">Code</th>
+                  <th className="px-2 pb-2 font-medium">Participant</th>
+                  <th className="px-2 pb-2 font-medium">Progress</th>
+                  <th className="px-2 pb-2 font-medium text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody>
-                {codes.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-50 align-top">
-                    <td className="py-2.5 pr-4">
-                      <button
-                        onClick={() => copy(`code-${c.id}`, c.code)}
-                        className="inline-flex items-center gap-1.5 font-mono text-gray-800 hover:text-purple-700"
-                        title="Copy code"
-                      >
-                        {c.code}
-                        {copied === `code-${c.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gray-300" />}
-                      </button>
-                      {c.participantLabel && (
-                        <div className="text-[11px] text-gray-400">{c.participantLabel}</div>
-                      )}
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      {c.usedByUserId ? (
-                        <div>
-                          <span className="text-gray-800">
-                            Used by <span className="font-semibold">{c.usedByUsername ?? "unknown"}</span>
-                          </span>
-                          <div className="text-[11px] text-gray-400">{fmtDate(c.usedAt)}</div>
-                        </div>
-                      ) : (
-                        <span className="inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">Unused</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 pr-4">
-                      {c.progress ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          {c.progress.map((p, i) => {
-                            const rate = pct(p.protectiveRate);
-                            const started = p.visitCount > 0;
-                            return (
-                              <span
-                                key={p.scenarioId}
-                                title={p.scenarioName}
-                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                                  p.masteryReachedAt
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : started
-                                    ? "bg-purple-50 text-purple-700"
-                                    : "bg-gray-100 text-gray-400"
-                                }`}
-                              >
-                                S{i + 1} {started ? `${rate ?? 0}%` : "—"}
-                                {p.masteryReachedAt && <Check className="w-3 h-3" />}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <span className="text-gray-300">—</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 pr-2 text-right whitespace-nowrap">
-                      <button
-                        onClick={() => copy(`link-${c.id}`, inviteLink(c.code))}
-                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-purple-300 hover:text-purple-700 mr-2"
-                        title={inviteLink(c.code)}
-                      >
-                        {copied === `link-${c.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Link2 className="w-3.5 h-3.5" />}
-                        Copy link
-                      </button>
-                      {c.usedByUserId && (
+              <tbody className="divide-y divide-gray-100">
+                {codes.map((c) => {
+                  const used = !!c.usedByUserId;
+                  return (
+                    <tr key={c.id} className="group transition-colors hover:bg-gray-50/70">
+                      {/* Code + label */}
+                      <td className="px-2 py-3 align-middle">
                         <button
-                          onClick={() => setDetailCode(c)}
-                          className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-purple-300 hover:text-purple-700 mr-2"
+                          onClick={() => copy(`code-${c.id}`, c.code)}
+                          className="inline-flex items-center gap-1.5 font-mono text-[13px] font-medium text-gray-800 hover:text-purple-700"
+                          title="Copy code"
                         >
-                          Details
+                          {c.code}
+                          {copied === `code-${c.id}`
+                            ? <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            : <Copy className="w-3.5 h-3.5 text-gray-300 opacity-0 transition-opacity group-hover:opacity-100" />}
                         </button>
-                      )}
-                      <button
-                        onClick={() => remove(c.id)}
-                        className="text-red-500 hover:text-red-700 align-middle"
-                        title="Delete code"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        {c.participantLabel && (
+                          <div className="mt-0.5 text-[11px] text-gray-400">{c.participantLabel}</div>
+                        )}
+                      </td>
+
+                      {/* Participant (who redeemed it) */}
+                      <td className="px-2 py-3 align-middle">
+                        {used ? (
+                          <div className="flex items-center gap-2">
+                            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-[11px] font-bold uppercase text-purple-700">
+                              {(c.usedByUsername ?? "?").charAt(0)}
+                            </span>
+                            <div className="leading-tight">
+                              <div className="text-[13px] font-medium text-gray-900">{c.usedByUsername ?? "unknown"}</div>
+                              <div className="text-[11px] text-gray-400">joined {fmtDay(c.usedAt)}</div>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-[13px] text-gray-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
+                            Unused
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Progress chips */}
+                      <td className="px-2 py-3 align-middle">
+                        {used && c.progress ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {c.progress.map((p, i) => {
+                              const started = p.visitCount > 0;
+                              const rate = pct(p.protectiveRate) ?? 0;
+                              const reached = !!p.masteryReachedAt;
+                              return (
+                                <span
+                                  key={p.scenarioId}
+                                  title={`${p.scenarioName} — ${started ? `${rate}% protective${reached ? " · target reached" : ""}` : "not started"}`}
+                                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+                                    reached
+                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                      : started
+                                      ? "border-purple-200 bg-purple-50 text-purple-700"
+                                      : "border-gray-200/70 bg-white text-gray-300"
+                                  }`}
+                                >
+                                  S{i + 1}
+                                  {started && <span>{rate}%</span>}
+                                  {reached && <Check className="w-3 h-3" />}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-gray-200">—</span>
+                        )}
+                      </td>
+
+                      {/* Actions — fixed three slots so every row lines up */}
+                      <td className="px-2 py-3 align-middle">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => copy(`link-${c.id}`, inviteLink(c.code))}
+                            className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-700"
+                            title={`Copy invite link\n${inviteLink(c.code)}`}
+                          >
+                            {copied === `link-${c.id}`
+                              ? <Check className="w-3.5 h-3.5 text-emerald-600" />
+                              : <Link2 className="w-3.5 h-3.5" />}
+                            Copy link
+                          </button>
+                          <button
+                            onClick={() => used && setDetailCode(c)}
+                            disabled={!used}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors enabled:hover:bg-purple-50 enabled:hover:text-purple-700 disabled:opacity-0"
+                            title="Participant details"
+                            aria-hidden={!used}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => remove(c)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-300 transition-colors hover:bg-red-50 hover:text-red-600"
+                            title="Delete code"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -273,15 +314,20 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {detailCode.usedByUsername ?? "Participant"}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Code <span className="font-mono">{detailCode.code}</span>
-                  {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
-                  {" · redeemed "}{fmtDate(detailCode.usedAt)}
-                </p>
+              <div className="flex items-center gap-3">
+                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-sm font-bold uppercase text-purple-700">
+                  {(detailCode.usedByUsername ?? "?").charAt(0)}
+                </span>
+                <div>
+                  <h3 className="text-lg font-semibold leading-tight text-gray-900">
+                    {detailCode.usedByUsername ?? "Participant"}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Code <span className="font-mono">{detailCode.code}</span>
+                    {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
+                    {" · joined "}{fmtDate(detailCode.usedAt)}
+                  </p>
+                </div>
               </div>
               <button
                 onClick={() => setDetailCode(null)}
