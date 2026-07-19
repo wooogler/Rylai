@@ -565,7 +565,7 @@ export default function AdminPage() {
         {/* Access Codes tab */}
         {activeTab === 'access' && userId && (
           <div className="mb-8">
-            <AccessCodes educatorId={userId} />
+            <AccessCodes educatorId={userId} educatorUsername={currentUser ?? ''} />
           </div>
         )}
 

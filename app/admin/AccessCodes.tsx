@@ -1,26 +1,49 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X } from "lucide-react";
+
+// Per-scenario progress summary for the participant who redeemed a code (server-computed
+// from scenario_progress — see /api/access-codes GET).
+interface CodeProgress {
+  scenarioId: number;
+  scenarioName: string;
+  protectiveRate: number | null;
+  protectiveCount: number;
+  neutralCount: number;
+  vulnerableCount: number;
+  masteryReachedAt: number | null;
+  completedAt: number | null;
+  comfortExitAt: number | null;
+  visitCount: number;
+  lastVisitedAt: number | null;
+}
 
 interface AccessCode {
   id: string;
   code: string;
   participantLabel: string;
   usedByUserId: string | null;
+  usedByUsername: string | null;
   usedAt: number | null;
   createdAt: number;
+  progress: CodeProgress[] | null;
 }
 
-// Participant access-code management (Evaluation Plan §6, L101–102). Educators issue codes
-// here; learners must present an unused code to sign up, which then consumes it.
-export default function AccessCodes({ educatorId }: { educatorId: string }) {
+const pct = (rate: number | null) => (rate === null ? null : Math.round(rate * 100));
+const fmtDate = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : "—");
+
+// Participant access-code management (Evaluation Plan §6, L101–102). Educators issue codes /
+// invite links here; learners must present an unused code to sign up, which then consumes it.
+// Used codes show who redeemed them and a per-scenario progress summary (details in a modal).
+export default function AccessCodes({ educatorId, educatorUsername }: { educatorId: string; educatorUsername: string }) {
   const [codes, setCodes] = useState<AccessCode[]>([]);
   const [label, setLabel] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [count, setCount] = useState(1);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [detailCode, setDetailCode] = useState<AccessCode | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -52,7 +75,7 @@ export default function AccessCodes({ educatorId }: { educatorId: string }) {
         alert(d.error || "Failed to create access code(s).");
         return;
       }
-      setCodes(d.codes || []);
+      await load();
       setCustomCode("");
       setLabel("");
     } finally {
@@ -65,9 +88,15 @@ export default function AccessCodes({ educatorId }: { educatorId: string }) {
     load();
   };
 
-  const copy = (code: string) => {
-    navigator.clipboard?.writeText(code);
-    setCopied(code);
+  // Invite link: /<educator>?code=<code> — the educator segment keeps study URLs
+  // recognizable at a glance; the code pre-fills signup so participants only pick a
+  // username + password.
+  const inviteLink = (code: string) =>
+    `${window.location.origin}/${encodeURIComponent(educatorUsername)}?code=${encodeURIComponent(code)}`;
+
+  const copy = (key: string, text: string) => {
+    navigator.clipboard?.writeText(text);
+    setCopied(key);
     setTimeout(() => setCopied(null), 1200);
   };
 
@@ -79,7 +108,8 @@ export default function AccessCodes({ educatorId }: { educatorId: string }) {
       <div className="bg-white rounded-lg shadow-md p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-1">Create access codes</h3>
         <p className="text-sm text-gray-500 mb-4">
-          Participants need one of these codes to sign up. Enter a specific code (e.g.{" "}
+          Participants need a code to sign up — share the <span className="font-medium">invite link</span> and
+          they only pick a username and password. Enter a specific code (e.g.{" "}
           <span className="font-mono">p1-rylai</span>), or leave it blank to generate random ones.
         </p>
         <div className="flex flex-wrap items-end gap-3">
@@ -141,36 +171,87 @@ export default function AccessCodes({ educatorId }: { educatorId: string }) {
               <thead>
                 <tr className="text-left text-xs uppercase tracking-wide text-gray-400 border-b border-gray-100">
                   <th className="py-2 pr-4">Code</th>
-                  <th className="py-2 pr-4">Label</th>
                   <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4">Progress</th>
                   <th className="py-2 pr-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {codes.map((c) => (
-                  <tr key={c.id} className="border-b border-gray-50">
-                    <td className="py-2 pr-4">
+                  <tr key={c.id} className="border-b border-gray-50 align-top">
+                    <td className="py-2.5 pr-4">
                       <button
-                        onClick={() => copy(c.code)}
+                        onClick={() => copy(`code-${c.id}`, c.code)}
                         className="inline-flex items-center gap-1.5 font-mono text-gray-800 hover:text-purple-700"
                         title="Copy code"
                       >
                         {c.code}
-                        {copied === c.code ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gray-300" />}
+                        {copied === `code-${c.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5 text-gray-300" />}
                       </button>
+                      {c.participantLabel && (
+                        <div className="text-[11px] text-gray-400">{c.participantLabel}</div>
+                      )}
                     </td>
-                    <td className="py-2 pr-4 text-gray-600">{c.participantLabel || "—"}</td>
-                    <td className="py-2 pr-4">
+                    <td className="py-2.5 pr-4">
                       {c.usedByUserId ? (
-                        <span className="inline-block rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">Used</span>
+                        <div>
+                          <span className="text-gray-800">
+                            Used by <span className="font-semibold">{c.usedByUsername ?? "unknown"}</span>
+                          </span>
+                          <div className="text-[11px] text-gray-400">{fmtDate(c.usedAt)}</div>
+                        </div>
                       ) : (
                         <span className="inline-block rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">Unused</span>
                       )}
                     </td>
-                    <td className="py-2 pr-4 text-right">
+                    <td className="py-2.5 pr-4">
+                      {c.progress ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          {c.progress.map((p, i) => {
+                            const rate = pct(p.protectiveRate);
+                            const started = p.visitCount > 0;
+                            return (
+                              <span
+                                key={p.scenarioId}
+                                title={p.scenarioName}
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                  p.masteryReachedAt
+                                    ? "bg-emerald-50 text-emerald-700"
+                                    : started
+                                    ? "bg-purple-50 text-purple-700"
+                                    : "bg-gray-100 text-gray-400"
+                                }`}
+                              >
+                                S{i + 1} {started ? `${rate ?? 0}%` : "—"}
+                                {p.masteryReachedAt && <Check className="w-3 h-3" />}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 pr-2 text-right whitespace-nowrap">
+                      <button
+                        onClick={() => copy(`link-${c.id}`, inviteLink(c.code))}
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-purple-300 hover:text-purple-700 mr-2"
+                        title={inviteLink(c.code)}
+                      >
+                        {copied === `link-${c.id}` ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Link2 className="w-3.5 h-3.5" />}
+                        Copy link
+                      </button>
+                      {c.usedByUserId && (
+                        <button
+                          onClick={() => setDetailCode(c)}
+                          className="rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-600 hover:border-purple-300 hover:text-purple-700 mr-2"
+                        >
+                          Details
+                        </button>
+                      )}
                       <button
                         onClick={() => remove(c.id)}
-                        className="text-red-500 hover:text-red-700"
+                        className="text-red-500 hover:text-red-700 align-middle"
                         title="Delete code"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -183,6 +264,73 @@ export default function AccessCodes({ educatorId }: { educatorId: string }) {
           </div>
         )}
       </div>
+
+      {/* Participant detail modal */}
+      {detailCode && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-16" onClick={() => setDetailCode(null)}>
+          <div
+            className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {detailCode.usedByUsername ?? "Participant"}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Code <span className="font-mono">{detailCode.code}</span>
+                  {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
+                  {" · redeemed "}{fmtDate(detailCode.usedAt)}
+                </p>
+              </div>
+              <button
+                onClick={() => setDetailCode(null)}
+                className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[65vh] overflow-y-auto px-6 py-4">
+              {detailCode.progress && detailCode.progress.length > 0 ? (
+                <div className="space-y-4">
+                  {detailCode.progress.map((p) => {
+                    const rate = pct(p.protectiveRate);
+                    const started = p.visitCount > 0;
+                    return (
+                      <div key={p.scenarioId} className="rounded-lg border border-gray-200 p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <h4 className="text-sm font-semibold text-gray-900">{p.scenarioName}</h4>
+                          {p.masteryReachedAt ? (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                              <Check className="w-3 h-3" /> Target reached
+                            </span>
+                          ) : started ? (
+                            <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700">In progress</span>
+                          ) : (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-400">Not started</span>
+                          )}
+                        </div>
+                        <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs sm:grid-cols-3">
+                          <div><dt className="text-gray-400">Protective rate</dt><dd className="font-medium text-gray-800">{started ? `${rate ?? 0}%` : "—"}</dd></div>
+                          <div><dt className="text-gray-400">Replies (P · N · V)</dt><dd className="font-medium text-gray-800">{p.protectiveCount} · {p.neutralCount} · {p.vulnerableCount}</dd></div>
+                          <div><dt className="text-gray-400">Visits</dt><dd className="font-medium text-gray-800">{p.visitCount}</dd></div>
+                          <div><dt className="text-gray-400">Target reached</dt><dd className="font-medium text-gray-800">{fmtDate(p.masteryReachedAt)}</dd></div>
+                          <div><dt className="text-gray-400">Ended (End Chat)</dt><dd className="font-medium text-gray-800">{fmtDate(p.completedAt)}</dd></div>
+                          <div><dt className="text-gray-400">Comfort exit</dt><dd className="font-medium text-gray-800">{fmtDate(p.comfortExitAt)}</dd></div>
+                          <div className="col-span-2 sm:col-span-3"><dt className="text-gray-400 inline">Last active:</dt>{" "}<dd className="inline font-medium text-gray-800">{fmtDate(p.lastVisitedAt)}</dd></div>
+                        </dl>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm italic text-gray-400">No progress recorded yet.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
