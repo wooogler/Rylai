@@ -23,16 +23,20 @@ type DefaultScenario = {
   persistMessages: boolean;
   timeGapLabel: string;
   splashMarkdown: string;
+  assessmentMode: boolean;
+  maxMessages: number;
   presetMessages: PresetMessage[];
   description: string;
 };
 
-// The RYLAI study's two-scenario design (Evaluation Plan §6). The learner meets the same
-// online stranger ("Alex") twice: an early-stage first meeting (Stages 1–3) and, three
-// months later, a more personal late-stage continuation (Stages 4–6). Scenario 2 carries
-// Scenario 1's conversation forward, shows a "3 months later" separator, then Alex re-opens
-// the (late-stage) conversation via its preset messages. Both gate on an 80% Safe Response
-// Rate. Educators can edit every field, including the splash-screen copy.
+// The RYLAI study's default module (Evaluation Plan §6): two training scenarios plus a
+// final assessment. The learner meets the same online stranger ("Alex") twice — an
+// early-stage first meeting (Stages 1–3) and, three months later, a more personal
+// late-stage continuation (Stages 4–6); Scenario 2 carries Scenario 1's conversation
+// forward behind a "3 months later" separator and Alex re-opens via its preset messages.
+// Both training scenarios gate on an 80% Safe Response Rate. The module ends with an
+// assessment-mode scenario (§6.1b): a NEW stranger, natural progression, no feedback, no
+// stage display, no gate, ending after ~100 messages. Educators can edit every field.
 const SCENARIO_1_SPLASH = `## Scenario 1: Meeting Someone New Online
 
 Imagine you're chatting online with someone you just met. Respond as you normally would if this were a real online conversation. Your goal is to stay safe while remaining open to getting to know new people.
@@ -61,7 +65,16 @@ In this scenario, you may encounter behaviors that reflect the **later stages of
 
 Similar to Scenario 1, you will chat naturally with the chatbot. There are no right or wrong responses — respond as you normally would if this were a real online conversation. Your responses will be classified as **protective**, **neutral**, or **vulnerable**, depending on how you responded. Continue chatting until you reach **at least an 80% Safe Response Rate** (protective and neutral replies both count as safe). This means responding in ways that help keep you safe during the conversation. When you reach 80%, you will be able to move on or continue chatting if you'd like.`;
 
-// Scenarios seeded for every new educator (admin) account on signup.
+const SCENARIO_3_SPLASH = `## Scenario 3: A New Conversation
+
+For this final part, you'll chat with someone new — this time **without feedback or scores**. Just chat the way you normally would.
+
+Imagine you're chatting online with someone you just met. Reply the way you normally would, but pay attention to anything that feels weird, unsafe, or uncomfortable. Your goal is to stay safe while still being open to getting to know new people.
+
+The conversation will wrap up on its own after a while. And remember — if anything makes you uncomfortable, you can leave at any time without penalty.`;
+
+// Scenarios seeded for every new educator (admin) account on signup. Order matters: the
+// assessment scenario must come last (the training gate unlocks into it).
 export const defaultScenarios: DefaultScenario[] = [
   {
     slug: 'scenario-1-meeting-someone-new',
@@ -78,6 +91,8 @@ export const defaultScenarios: DefaultScenario[] = [
     persistMessages: false,
     timeGapLabel: '',
     splashMarkdown: SCENARIO_1_SPLASH,
+    assessmentMode: false,
+    maxMessages: 0,
     presetMessages: [
       { id: '1', text: 'hey! i think we were in the same game lobby earlier 😄', sender: 'other', timestamp: new Date().toISOString() },
       { id: '2', text: 'you were really good lol. how long have you been playing?', sender: 'other', timestamp: new Date().toISOString() },
@@ -99,11 +114,38 @@ export const defaultScenarios: DefaultScenario[] = [
     persistMessages: true,
     timeGapLabel: '3 months later',
     splashMarkdown: SCENARIO_2_SPLASH,
+    assessmentMode: false,
+    maxMessages: 0,
     presetMessages: [
       { id: '1', text: "heyy it's been what, like 3 months now? feels like i've known you forever 🥹", sender: 'other', timestamp: new Date().toISOString() },
       { id: '2', text: "honestly you're the one person i feel like i can actually talk to about anything", sender: 'other', timestamp: new Date().toISOString() },
     ],
     description: 'It has now been about three months since you first began chatting with this person. Respond as you normally would if this were a real online conversation. Your goal is to stay safe while responding based on your own comfort level.',
+  },
+  {
+    // §6.1b assessment: a fresh stranger, natural progression across all stages, no
+    // feedback/stage UI/gate. Ends automatically after ~100 messages (the doc's preferred
+    // stopping rule), so participants aren't cut off too soon (floor effect).
+    slug: 'scenario-3-assessment',
+    name: 'Scenario 3: A New Conversation',
+    predatorName: 'Jamie',
+    handle: '@jamie',
+    stage: 1,
+    autoStage: true,
+    minStage: 1,
+    maxStage: 6,
+    masteryEnabled: false,
+    masteryTargetRate: 80,
+    masteryMinResponses: 20,
+    persistMessages: false,
+    timeGapLabel: '',
+    splashMarkdown: SCENARIO_3_SPLASH,
+    assessmentMode: true,
+    maxMessages: 100,
+    presetMessages: [
+      { id: '1', text: 'heyy, saw your comment on that new game trailer 😅 you into it too?', sender: 'other', timestamp: new Date().toISOString() },
+    ],
+    description: "Imagine you're chatting online with someone you just met. Reply the way you normally would, but pay attention to anything that feels weird, unsafe, or uncomfortable. Your goal is to stay safe while still being open to getting to know new people.",
   },
 ];
 
@@ -129,6 +171,8 @@ export async function createDefaultScenarios(userId: string): Promise<void> {
       persistMessages: scenario.persistMessages,
       timeGapLabel: scenario.timeGapLabel,
       splashMarkdown: scenario.splashMarkdown,
+      assessmentMode: scenario.assessmentMode,
+      maxMessages: scenario.maxMessages,
       presetMessages: scenario.presetMessages,
       description: scenario.description,
       createdAt: now,
