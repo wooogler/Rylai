@@ -217,14 +217,9 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                       {/* Participant (who redeemed it) */}
                       <td className="px-2 py-3 align-middle">
                         {used ? (
-                          <div className="flex items-center gap-2">
-                            <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-purple-100 text-[11px] font-bold uppercase text-purple-700">
-                              {(c.usedByUsername ?? "?").charAt(0)}
-                            </span>
-                            <div className="leading-tight">
-                              <div className="text-[13px] font-medium text-gray-900">{c.usedByUsername ?? "unknown"}</div>
-                              <div className="text-[11px] text-gray-400">joined {fmtDay(c.usedAt)}</div>
-                            </div>
+                          <div className="leading-tight">
+                            <div className="text-[13px] font-medium text-gray-900">{c.usedByUsername ?? "unknown"}</div>
+                            <div className="text-[11px] text-gray-400">joined {fmtDay(c.usedAt)}</div>
                           </div>
                         ) : (
                           <span className="inline-flex items-center gap-1.5 text-[13px] text-gray-400">
@@ -313,20 +308,15 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-              <div className="flex items-center gap-3">
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 text-sm font-bold uppercase text-purple-700">
-                  {(detailCode.usedByUsername ?? "?").charAt(0)}
-                </span>
-                <div>
-                  <h3 className="text-lg font-semibold leading-tight text-gray-900">
-                    {detailCode.usedByUsername ?? "Participant"}
-                  </h3>
-                  <p className="text-xs text-gray-500">
-                    Code <span className="font-mono">{detailCode.code}</span>
-                    {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
-                    {" · joined "}{fmtDate(detailCode.usedAt)}
-                  </p>
-                </div>
+              <div>
+                <h3 className="text-lg font-semibold leading-tight text-gray-900">
+                  {detailCode.usedByUsername ?? "Participant"}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Code <span className="font-mono">{detailCode.code}</span>
+                  {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
+                  {" · joined "}{fmtDate(detailCode.usedAt)}
+                </p>
               </div>
               <button
                 onClick={() => setDetailCode(null)}
