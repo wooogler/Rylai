@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
-import { ArrowLeft, LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info } from "lucide-react";
+import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info, Hand } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
@@ -11,7 +11,6 @@ import TypingIndicator from "../TypingIndicator";
 import FeedbackComment from "../FeedbackComment";
 import CongratsModal from "../CongratsModal";
 import SplashModal from "../SplashModal";
-import DisclaimerFooter from "../DisclaimerFooter";
 import Button from "@/components/Button";
 
 interface PreviewFeedback {
@@ -867,59 +866,60 @@ export default function ChatPage() {
   );
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="mb-6">
-          <div className="flex justify-between items-center mb-4">
+    // App-shell layout: the page itself never scrolls — the header and footer stay pinned
+    // (keeping the safe-exit link always visible) and only the message list scrolls.
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
+      {/* Top bar */}
+      <header className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-3">
+        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-4">
+          <h1 className="min-w-0 truncate text-lg font-bold text-gray-900" title={scenario.description}>
+            {scenario.name}
+          </h1>
+          <div className="flex flex-shrink-0 items-center gap-2">
             {isAdmin ? (
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-2 text-purple-600 hover:text-purple-800 font-bold transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-semibold text-purple-600 transition-colors hover:bg-purple-50 hover:text-purple-800"
               >
-                <Settings className="w-5 h-5" />
+                <Settings className="w-4 h-4" />
                 Settings
               </Link>
             ) : (
-              <Link href="/select-user" className="inline-flex items-center text-gray-600 hover:text-gray-900">
-                <ArrowLeft className="w-5 h-5 mr-2" />
-                Select a Teacher
-              </Link>
+              /* Learners are bound to one educator (dedicated-URL flow) — show who, no picker. */
+              <span className="hidden items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 sm:inline-flex">
+                Educator&nbsp;<span className="font-semibold text-gray-700">{adminName ?? '—'}</span>
+              </span>
             )}
-            <div className="flex items-center gap-2">
-              <Button
-                onClick={handleResetModule}
-                disabled={isResetting || isRefreshing || isBusy}
-                variant="ghost"
-                size="small"
-                title="Reset the entire module: start the whole scenario set over from the beginning"
-              >
-                <RotateCcw className={`w-4 h-4 mr-2 ${isResetting ? 'animate-spin' : ''}`} />
-                {isResetting ? 'Resetting…' : 'Reset'}
-              </Button>
-              <Button
-                onClick={async () => {
-                  await logout();
-                  router.push("/");
-                }}
-                variant="ghost"
-                size="small"
-              >
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </Button>
-            </div>
-          </div>
-          <div className="mb-6">
-            <h1 className="text-2xl font-bold">{scenario.name}</h1>
-            <p className="text-sm text-gray-600 mt-1">{scenario.description}</p>
+            <Button
+              onClick={handleResetModule}
+              disabled={isResetting || isRefreshing || isBusy}
+              variant="ghost"
+              size="small"
+              title="Reset the entire module: start the whole scenario set over from the beginning"
+            >
+              <RotateCcw className={`w-4 h-4 mr-2 ${isResetting ? 'animate-spin' : ''}`} />
+              {isResetting ? 'Resetting…' : 'Reset'}
+            </Button>
+            <Button
+              onClick={async () => {
+                await logout();
+                router.push("/");
+              }}
+              variant="ghost"
+              size="small"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              Logout
+            </Button>
           </div>
         </div>
+      </header>
 
-        {/* Chat card + comment gutter OUTSIDE the card (Google Docs style) */}
-        <div className="flex items-stretch gap-3">
+      {/* Chat card + comment gutter OUTSIDE the card (Google Docs style) */}
+      <main className="min-h-0 flex-1 px-6 py-4">
+        <div className="mx-auto flex h-full w-full max-w-4xl items-stretch gap-3">
           {/* Chat card */}
-          <div className="bg-white rounded-lg shadow flex-1 min-w-0 h-[700px] flex flex-col">
+          <div className="bg-white rounded-lg shadow flex-1 min-w-0 h-full flex flex-col">
             {/* Chat Header */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
               <div className="flex items-center justify-between mb-2">
@@ -1118,14 +1118,6 @@ export default function ChatPage() {
                   )}
                 </div>
               </div>
-              <div className="mt-2.5 text-center">
-                <button
-                  onClick={handleComfortExit}
-                  className="text-xs text-gray-400 underline hover:text-gray-600"
-                >
-                  I don&apos;t feel comfortable anymore.
-                </button>
-              </div>
               </>
               )}
             </div>
@@ -1184,19 +1176,22 @@ export default function ChatPage() {
             )}
           </div>
         </div>
+      </main>
 
-        {/* Navigation */}
-        <div className="mt-8">
+      {/* Bottom bar: navigation + always-visible safe exit */}
+      <footer className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3">
+        <div className="mx-auto w-full max-w-4xl">
           <div className="flex justify-between items-center">
             <Button
               onClick={handlePreviousScenario}
               disabled={currentScenario === 0}
               variant="ghost"
+              size="small"
             >
               <ChevronLeft className="w-5 h-5" />
               Back
             </Button>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <div className="flex items-center space-x-2">
                 {scenarios.map((scenario, index) => {
                   const progress = scenarioProgressMap.get(scenario.id);
@@ -1224,13 +1219,14 @@ export default function ChatPage() {
                   );
                 })}
               </div>
-              <p className="text-lg font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
+              <p className="text-sm font-semibold text-gray-700">Scenario {currentScenario + 1} of {scenarios.length}</p>
             </div>
             <div className="relative group">
               <Button
                 onClick={handleNextScenario}
                 disabled={currentScenario === scenarios.length - 1 || masteryLocked}
                 variant="primary"
+                size="small"
                 className={showLockTip ? 'pointer-events-none' : undefined}
               >
                 <span className="flex items-center">
@@ -1252,8 +1248,20 @@ export default function ChatPage() {
             </div>
           </div>
         </div>
+      </footer>
 
-        <DisclaimerFooter />
+        {/* Floating safe exit — always visible and clickable (§6 L216; the L118 withdraw
+            notice lives in its tooltip). Hidden once the conversation has ended. */}
+        {!endedReason && (
+          <button
+            onClick={handleComfortExit}
+            title="If any part of this conversation makes you feel uncomfortable or unsafe, you may stop at any time without penalty."
+            className="fixed bottom-20 left-5 z-40 inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-4 py-2.5 text-sm font-medium text-rose-600 shadow-lg transition-all hover:bg-rose-50 hover:shadow-xl"
+          >
+            <Hand className="h-4 w-4" />
+            I don&apos;t feel comfortable anymore.
+          </button>
+        )}
 
         {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
           <SplashModal
@@ -1271,7 +1279,6 @@ export default function ChatPage() {
             onEnd={endChat}
           />
         )}
-      </div>
     </div>
   );
 }
