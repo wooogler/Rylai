@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check, Link2, X, Eye } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X } from "lucide-react";
 
 // Per-scenario progress summary for the participant who redeemed a code (server-computed
 // from scenario_progress — see /api/access-codes GET).
@@ -282,11 +282,10 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                           <button
                             onClick={() => used && setDetailCode(c)}
                             disabled={!used}
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors enabled:hover:bg-purple-50 enabled:hover:text-purple-700 disabled:opacity-0"
-                            title="Participant details"
+                            className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-gray-500 transition-colors enabled:hover:bg-purple-50 enabled:hover:text-purple-700 disabled:pointer-events-none disabled:opacity-0"
                             aria-hidden={!used}
                           >
-                            <Eye className="w-4 h-4" />
+                            Details
                           </button>
                           <button
                             onClick={() => remove(c)}
