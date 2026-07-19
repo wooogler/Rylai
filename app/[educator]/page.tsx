@@ -40,8 +40,11 @@ export default function EducatorLandingPage() {
       }
 
       if (!isAuthenticated) {
-        // Remember this educator through the sign-up / login flow.
-        router.replace(`/?educator=${encodeURIComponent(username)}`);
+        // Remember this educator through the sign-up / login flow. An invite link may also
+        // carry an access code (?code=...) — pass it along so the signup form pre-applies it.
+        const inviteCode = new URLSearchParams(window.location.search).get("code");
+        const codePart = inviteCode ? `&code=${encodeURIComponent(inviteCode)}` : "";
+        router.replace(`/?educator=${encodeURIComponent(username)}${codePart}`);
         return;
       }
       if (userType === "admin") {

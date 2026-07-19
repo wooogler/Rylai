@@ -8,6 +8,15 @@ import Image from "next/image";
 
 type Mode = "login" | "signup";
 
+// Invite-link state: resolved from the ?code= param via /api/access-codes/lookup. When a
+// valid unused code is present, the signup form pre-applies the code + educator so a
+// participant only enters a username and password (§6, L101–102 invite flow).
+interface Invite {
+  code: string;
+  status: "valid" | "used" | "invalid";
+  educatorUsername: string | null;
+}
+
 export default function Home() {
   const router = useRouter();
   const { setAuthUser, loadUserScenarios, isAuthenticated, isAdmin, authHydrated } = useScenarioStore();
@@ -22,9 +31,32 @@ export default function Home() {
   // When arriving from an educator-dedicated URL (/<educator>), we remember it here and route
   // learners back to it after auth (so they land in that educator's scenarios). §6, L96–97.
   const [educatorParam, setEducatorParam] = useState<string | null>(null);
+  const [invite, setInvite] = useState<Invite | null>(null);
   useEffect(() => {
-    const e = new URLSearchParams(window.location.search).get("educator");
+    const search = new URLSearchParams(window.location.search);
+    const e = search.get("educator");
     if (e) setEducatorParam(e);
+
+    // Invite link: look the code up, pre-fill it, and jump straight to Sign Up.
+    const code = search.get("code")?.trim();
+    if (!code) return;
+    setMode("signup");
+    setAccessCode(code);
+    (async () => {
+      try {
+        const res = await fetch(`/api/access-codes/lookup?code=${encodeURIComponent(code)}`);
+        const d = await res.json();
+        if (!res.ok) throw new Error(d.error || "lookup failed");
+        const status: Invite["status"] = !d.found ? "invalid" : d.used ? "used" : "valid";
+        setInvite({ code, status, educatorUsername: d.educatorUsername ?? null });
+        // The code's educator is authoritative for post-signup routing (it defines the
+        // study enrollment), even if the URL's educator segment disagrees.
+        if (status === "valid" && d.educatorUsername) setEducatorParam(d.educatorUsername);
+      } catch (err) {
+        console.error("Invite code lookup failed:", err);
+        setInvite({ code, status: "invalid", educatorUsername: null });
+      }
+    })();
   }, []);
 
   const learnerLanding = () =>
@@ -125,6 +157,23 @@ export default function Home() {
         </p>
 
         <div className="bg-white rounded-2xl shadow-lg p-8 text-left">
+          {/* Invite-link banner */}
+          {invite && (
+            invite.status === "valid" ? (
+              <div className="mb-6 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-900">
+                You&apos;re joining{" "}
+                <span className="font-semibold">{invite.educatorUsername ?? "your educator"}</span>&apos;s
+                RYLAI class. Just pick a username and password to get started.
+              </div>
+            ) : (
+              <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                {invite.status === "used"
+                  ? "This invite link's access code has already been used. If that wasn't you, please contact your researcher for a new code."
+                  : "This invite link's access code isn't valid. Please check with your researcher, or enter a code manually below."}
+              </div>
+            )
+          )}
+
           {/* Login / Sign Up toggle */}
           <div className="flex gap-2 mb-6 p-1 bg-gray-100 rounded-full">
             <button
@@ -180,17 +229,21 @@ export default function Home() {
                   value={accessCode}
                   onChange={(e) => setAccessCode(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                  readOnly={invite?.status === "valid"}
                   placeholder="Enter the code your researcher gave you"
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 ${
+                    invite?.status === "valid" ? "bg-gray-50 text-gray-500 cursor-default" : ""
+                  }`}
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Participants need an access code to sign up. (Educators can leave this blank and
-                  use the passcode below.)
+                  {invite?.status === "valid"
+                    ? "Your access code was applied from the invite link."
+                    : "Participants need an access code to sign up. (Educators can leave this blank and use the passcode below.)"}
                 </p>
               </div>
             )}
 
-            {mode === "signup" && (
+            {mode === "signup" && !invite && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Educator passcode <span className="text-gray-400 font-normal">(optional)</span>
