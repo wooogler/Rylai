@@ -108,6 +108,16 @@ export default function ChatPage() {
     }
   }, [authHydrated, isAuthenticated, router]);
 
+  // Sync the educator's latest settings (scenario config, age, name) once auth is known.
+  // The persisted store restores a snapshot on browser refresh, so without this the chat
+  // would keep using stale scenario config (e.g. an outdated gate threshold) until the
+  // learner re-picked their teacher or hit the destructive per-scenario Refresh.
+  useEffect(() => {
+    if (!authHydrated || !isAuthenticated) return;
+    reloadEducatorData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authHydrated, isAuthenticated]);
+
   const initialScenarioIndex = scenarios.findIndex(s => s.slug === scenarioSlug);
   const [currentScenario, setCurrentScenario] = useState(initialScenarioIndex >= 0 ? initialScenarioIndex : 0);
   const [messages, setMessages] = useState<Message[]>([]);

@@ -72,10 +72,11 @@ export default function WelcomePage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
       <div className="w-full max-w-2xl rounded-2xl border border-gray-100 bg-white p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <span className="text-xs font-semibold uppercase tracking-wide text-purple-600">
-            Welcome to RYLAI
-          </span>
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+            Welcome to <span className="text-purple-600">RYLAI</span>
+          </h1>
+          <div className="mx-auto mt-4 h-1 w-16 rounded-full bg-purple-500" />
         </div>
         <Markdown>{content}</Markdown>
         <div className="mt-8 flex justify-center">

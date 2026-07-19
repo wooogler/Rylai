@@ -394,7 +394,12 @@ export const useScenarioStore = create<ScenarioStore>()(
           }
 
           const data = await response.json();
-          set({ scenarios: data.scenarios || [] });
+          const fresh = data.scenarios || [];
+          // Skip the update when nothing changed — effects keyed on `scenarios` (message
+          // loading, visit tracking) would otherwise re-run on every sync for no reason.
+          if (JSON.stringify(fresh) !== JSON.stringify(get().scenarios)) {
+            set({ scenarios: fresh });
+          }
         } catch (error) {
           console.error('Error loading scenarios:', error);
         }
