@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
-import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info, Hand } from "lucide-react";
+import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info, DoorOpen } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
@@ -665,9 +665,9 @@ export default function ChatPage() {
     if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
   };
 
-  // Voluntary "I don't feel comfortable anymore." exit, available at any time (§6, L216).
+  // Voluntary safe exit, available at any time (§6, L216). Ends the conversation
+  // immediately — no confirm dialog (team decision); Reset lets the learner start over.
   const handleComfortExit = () => {
-    if (!confirm("End this conversation now? It's completely okay to stop whenever you want.")) return;
     setShowCongrats(false);
     setEndedReason('comfort_exit');
     if (userType === 'user') recordScenarioLifecycle(scenario.id, 'comfort_exit');
@@ -1181,7 +1181,8 @@ export default function ChatPage() {
       {/* Bottom bar: navigation + always-visible safe exit */}
       <footer className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3">
         <div className="mx-auto w-full max-w-4xl">
-          <div className="flex justify-between items-center">
+          {/* Nav cluster centered with tight gaps; safe exit pinned right so it's always in view. */}
+          <div className="relative flex items-center justify-center gap-4">
             <Button
               onClick={handlePreviousScenario}
               disabled={currentScenario === 0}
@@ -1246,22 +1247,22 @@ export default function ChatPage() {
                 </div>
               )}
             </div>
+
+            {/* Safe exit (§6 L216): leaves the conversation immediately, no confirm.
+                The L118 withdraw notice lives in the tooltip. */}
+            {!endedReason && (
+              <button
+                onClick={handleComfortExit}
+                title="If any part of this conversation makes you feel uncomfortable or unsafe, you can leave at any time without penalty. This ends the conversation immediately."
+                className="absolute right-0 inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-100"
+              >
+                <DoorOpen className="w-4 h-4" />
+                Leave chat
+              </button>
+            )}
           </div>
         </div>
       </footer>
-
-        {/* Floating safe exit — always visible and clickable (§6 L216; the L118 withdraw
-            notice lives in its tooltip). Hidden once the conversation has ended. */}
-        {!endedReason && (
-          <button
-            onClick={handleComfortExit}
-            title="If any part of this conversation makes you feel uncomfortable or unsafe, you may stop at any time without penalty."
-            className="fixed bottom-20 left-5 z-40 inline-flex items-center gap-2 rounded-full border border-rose-200 bg-white px-4 py-2.5 text-sm font-medium text-rose-600 shadow-lg transition-all hover:bg-rose-50 hover:shadow-xl"
-          >
-            <Hand className="h-4 w-4" />
-            I don&apos;t feel comfortable anymore.
-          </button>
-        )}
 
         {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
           <SplashModal
