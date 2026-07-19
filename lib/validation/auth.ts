@@ -7,7 +7,7 @@ export function validatePassword(password: string): { valid: boolean; error?: st
 }
 
 export const signupSchema = z.object({
-  username: z.string().trim().min(3, 'Username must be at least 3 characters').max(40),
+  username: z.string().trim().min(2, 'Username must be at least 2 characters').max(40),
   password: z.string().min(1, 'Please enter a password'),
   passcode: z.string().optional(),
   // Participant access code — required for learner signups (gates registration). Educators

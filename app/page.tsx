@@ -87,8 +87,8 @@ export default function Home() {
       return;
     }
     if (mode === "signup") {
-      if (username.trim().length < 3) {
-        setError("Username must be at least 3 characters.");
+      if (username.trim().length < 2) {
+        setError("Username must be at least 2 characters.");
         return;
       }
       const pw = validatePassword(password);
@@ -202,7 +202,7 @@ export default function Home() {
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                placeholder={mode === "signup" ? "Choose a username (3+ chars)" : "Enter your username"}
+                placeholder={mode === "signup" ? "Choose a username (2+ chars)" : "Enter your username"}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             </div>
