@@ -739,9 +739,9 @@ export default function ChatPage() {
 
     const scenarioName = scenarios[currentScenario].name;
     if (!confirm(
-      `Refresh "${scenarioName}"?\n\n` +
-      `This loads your teacher's latest version of this scenario and starts the ` +
-      `conversation over from the beginning. Your messages and feedback for this ` +
+      `Restart "${scenarioName}"?\n\n` +
+      `This starts the conversation over from the beginning (with your teacher's ` +
+      `latest version of the scenario). Your messages and feedback for this ` +
       `scenario will be cleared.`
     )) {
       return;
@@ -940,14 +940,21 @@ export default function ChatPage() {
                       <Info className="w-5 h-5" />
                     </button>
                   )}
-                  <button
-                    onClick={handleRefreshScenario}
-                    disabled={isRefreshing || isResetting || isBusy}
-                    className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    title="Refresh this scenario: reload your teacher's latest version and start the conversation over"
-                  >
-                    <RefreshCw className={`w-5 h-5 ${isRefreshing ? 'animate-spin' : ''}`} />
-                  </button>
+                  <div className="relative group">
+                    <button
+                      onClick={handleRefreshScenario}
+                      disabled={isRefreshing || isResetting || isBusy}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      {isRefreshing ? 'Restarting…' : 'Restart'}
+                    </button>
+                    <div className="absolute top-full right-0 z-50 mt-2 hidden w-64 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
+                      <div className="font-semibold mb-1">Restart this scenario</div>
+                      Starts this conversation over from the beginning (with your teacher&apos;s latest
+                      version). Your messages and feedback for this scenario will be cleared.
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
