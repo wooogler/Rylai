@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
-import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RefreshCw, Settings, Eye, Check, Lock, Info, DoorOpen } from "lucide-react";
+import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RotateCw, Settings, Eye, Check, Lock, Info, DoorOpen } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
@@ -946,7 +946,7 @@ export default function ChatPage() {
                       disabled={isRefreshing || isResetting || isBusy}
                       className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+                      <RotateCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                       {isRefreshing ? 'Restarting…' : 'Restart'}
                     </button>
                     <div className="absolute top-full right-0 z-50 mt-2 hidden w-64 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
