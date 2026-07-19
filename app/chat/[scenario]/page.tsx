@@ -1178,11 +1178,10 @@ export default function ChatPage() {
         </div>
       </main>
 
-      {/* Bottom bar: navigation + always-visible safe exit */}
-      <footer className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3">
+      {/* Bottom bar: navigation + always-visible safe exit (pinned to the screen's right corner) */}
+      <footer className="relative flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3">
         <div className="mx-auto w-full max-w-4xl">
-          {/* Nav cluster centered; safe exit pinned right so it's always in view. */}
-          <div className="relative flex items-center justify-center gap-10">
+          <div className="flex items-center justify-center gap-10">
             <Button
               onClick={handlePreviousScenario}
               disabled={currentScenario === 0}
@@ -1248,25 +1247,26 @@ export default function ChatPage() {
               )}
             </div>
 
-            {/* Safe exit (§6 L216): leaves the conversation immediately, no confirm.
-                The L118 withdraw notice appears in a hover tooltip. */}
-            {!endedReason && (
-              <div className="group absolute right-0">
-                <button
-                  onClick={handleComfortExit}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-100"
-                >
-                  <DoorOpen className="w-4 h-4" />
-                  I don&apos;t feel comfortable anymore.
-                </button>
-                <div className="absolute bottom-full right-0 z-50 mb-2 hidden w-72 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
-                  If any part of this conversation makes you feel uncomfortable or unsafe, you can
-                  leave at any time without penalty. Clicking this ends the conversation immediately.
-                </div>
-              </div>
-            )}
           </div>
         </div>
+
+        {/* Safe exit (§6 L216): leaves the conversation immediately, no confirm.
+            The L118 withdraw notice appears in a hover tooltip. */}
+        {!endedReason && (
+          <div className="group absolute right-6 top-1/2 -translate-y-1/2">
+            <button
+              onClick={handleComfortExit}
+              className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-100"
+            >
+              <DoorOpen className="w-4 h-4" />
+              I don&apos;t feel comfortable anymore.
+            </button>
+            <div className="absolute bottom-full right-0 z-50 mb-2 hidden w-72 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
+              If any part of this conversation makes you feel uncomfortable or unsafe, you can
+              leave at any time without penalty. Clicking this ends the conversation immediately.
+            </div>
+          </div>
+        )}
       </footer>
 
         {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
