@@ -123,8 +123,26 @@ export default function Home() {
         return;
       }
 
+      // Learner signup with a manually-typed access code: bind them to the code's educator
+      // (invite links already do this), so they skip the teacher picker entirely. The lookup
+      // still resolves after the code was consumed by this very signup.
+      let learnerTarget = educatorParam;
+      if (mode === "signup" && data.user.userType === "user" && !learnerTarget && accessCode.trim()) {
+        try {
+          const lr = await fetch(`/api/access-codes/lookup?code=${encodeURIComponent(accessCode.trim())}`);
+          const ld = await lr.json();
+          if (lr.ok && ld.found && ld.educatorUsername) learnerTarget = ld.educatorUsername;
+        } catch {
+          /* fall back to the teacher picker */
+        }
+      }
+
       setAuthUser(data.user);
-      await goToLanding(data.user.userType);
+      if (data.user.userType === "admin") {
+        await goToLanding("admin");
+      } else {
+        router.push(learnerTarget ? `/${encodeURIComponent(learnerTarget)}` : "/select-user");
+      }
     } catch (err) {
       console.error("Auth error:", err);
       setError("Network error. Please try again.");
