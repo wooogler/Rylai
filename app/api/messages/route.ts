@@ -70,6 +70,9 @@ export async function POST(request: NextRequest) {
       ? message.timestamp
       : new Date(message.timestamp);
 
+    // onConflictDoNothing is the atomic backstop: if two concurrent requests both pass the
+    // findFirst check above (non-atomic) for the same (userId, scenarioId, messageId), the
+    // unique index makes the second insert a no-op instead of a duplicate row.
     await db.insert(userMessages).values({
       id: crypto.randomUUID(),
       userId,
@@ -80,7 +83,7 @@ export async function POST(request: NextRequest) {
       stage: typeof message.stage === 'number' ? message.stage : null,
       timestamp,
       createdAt: new Date(),
-    });
+    }).onConflictDoNothing();
 
     return NextResponse.json({ success: true });
   } catch (error) {

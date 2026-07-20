@@ -195,6 +195,13 @@ export const userMessages = sqliteTable(
       table.scenarioId
     ),
     messageIdIdx: index('user_messages_message_id_idx').on(table.messageId),
+    // One row per (user, scenario, messageId): makes preset-message seeding idempotent even
+    // if two loadMessages runs race, so inserts use onConflictDoNothing (see /api/messages).
+    userScenarioMessageIdx: uniqueIndex('user_messages_user_scenario_message_idx').on(
+      table.userId,
+      table.scenarioId,
+      table.messageId
+    ),
   })
 );
 
