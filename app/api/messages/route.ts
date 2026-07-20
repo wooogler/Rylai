@@ -137,9 +137,17 @@ export async function PATCH(request: NextRequest) {
       else if (r.classification === 'neutral') n++;
     }
     const total = p + n + v;
-    const minResponses = scenarioRow?.masteryMinResponses ?? 20;
+    // Denominator floor. For an ungated assessment the "full sample" is its own length
+    // (`maxMessages` participant replies), NOT the mastery gate's `masteryMinResponses` —
+    // that's a gate concept (and isn't even shown for assessments). Using it (default 20)
+    // made a short assessment read absurdly low, e.g. 1 safe reply / 20 = 5% for a 5-reply
+    // assessment. Unlimited assessments (maxMessages 0) fall back to the actual reply count.
+    // Keep this in sync with computeSafeRate()'s callers in the chat page.
+    const floorResponses = scenarioRow?.assessmentMode
+      ? (scenarioRow?.maxMessages ?? 0)
+      : (scenarioRow?.masteryMinResponses ?? 20);
     const targetRate = scenarioRow?.masteryTargetRate ?? 80;
-    const denom = Math.max(minResponses > 0 ? minResponses : 1, total);
+    const denom = Math.max(floorResponses > 0 ? floorResponses : 1, total);
     const rate = denom > 0 ? (p + n) / denom : 0;
     const reachedNow = rate * 100 >= targetRate;
 

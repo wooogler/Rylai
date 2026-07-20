@@ -19,6 +19,14 @@ interface PreviewFeedback {
   responseType?: ResponseType;
 }
 
+// The Safe Response Rate denominator floor for a scenario. Gated scenarios use the mastery
+// gate's minResponses; an ungated assessment uses its own length (maxMessages participant
+// replies) so a short assessment doesn't read as a tiny fraction of 20. Mirrors the
+// server-side floor in app/api/messages/route.ts (PATCH).
+function rateFloor(sc: Scenario): number {
+  return sc.assessmentMode ? (sc.maxMessages ?? 0) : (sc.masteryMinResponses ?? 20);
+}
+
 function getStageColorClass(stage: number): string {
   switch (stage) {
     case 0: return 'bg-gray-100 text-gray-600';
@@ -657,7 +665,7 @@ export default function ChatPage() {
   // masteryReachedAt (survives later dips) OR the current rate already meets the target.
   const computeMasteryMet = (sc: Scenario): boolean => {
     if (scenarioProgressMap.get(sc.id)?.masteryReachedAt) return true;
-    const info = computeSafeRate(messages, sc.masteryMinResponses ?? 20);
+    const info = computeSafeRate(messages, rateFloor(sc));
     return Math.round(info.rate * 100) >= (sc.masteryTargetRate ?? 80);
   };
 
@@ -889,7 +897,7 @@ export default function ChatPage() {
   // Safe Response Rate over the participant's classified replies (§6). The gate target
   // and the Max(minResponses, …) denominator floor come from the scenario config.
   const target = scenario.masteryTargetRate ?? 80;
-  const rateInfo = computeSafeRate(messages, scenario.masteryMinResponses ?? 20);
+  const rateInfo = computeSafeRate(messages, rateFloor(scenario));
   const ratePct = Math.round(rateInfo.rate * 100);
   // Sticky once the server records the target being reached (survives later dips).
   const reachedSticky = !!scenarioProgressMap.get(scenario.id)?.masteryReachedAt;
