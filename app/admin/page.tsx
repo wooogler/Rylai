@@ -86,7 +86,7 @@ export default function AdminPage() {
   const [hasChanges, setHasChanges] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
-  const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview' | 'access'>('scenarios');
+  const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview' | 'access'>('access');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -502,10 +502,10 @@ export default function AdminPage() {
         {/* Top-level tabs */}
         <div className="flex gap-1 border-b border-gray-200 mb-6">
           {([
+            { key: 'access', label: 'Distribution' },
             { key: 'scenarios', label: 'Scenarios' },
             { key: 'prompts', label: 'Prompts' },
             { key: 'preview', label: 'Preview & Test' },
-            { key: 'access', label: 'Access Codes' },
           ] as const).map((t) => (
             <button
               key={t.key}
