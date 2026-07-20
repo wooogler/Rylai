@@ -711,44 +711,46 @@ export default function AdminPage() {
                     )}
                   </div>
 
-                  {/* Auto Stage toggle */}
-                  <div className="flex items-start gap-3 bg-gray-50 rounded-lg p-3 border border-gray-200">
-                    <input
-                      id={`auto-stage-${scenario.id}`}
-                      type="checkbox"
-                      checked={scenario.autoStage}
-                      onChange={(e) => handleUpdateScenario(scenarioIndex, 'autoStage', e.target.checked)}
-                      className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer"
-                    />
-                    <label htmlFor={`auto-stage-${scenario.id}`} className="cursor-pointer">
-                      <span className="block text-sm font-medium text-gray-800">
-                        Automatically change the grooming stage
-                      </span>
-                      <span className="block text-xs text-gray-500">
-                        When on, the model changes the stage as the conversation develops and
-                        responds accordingly — it can move <span className="font-medium">up or down</span> between
-                        the minimum and maximum stages below. When off, the conversation stays
-                        fixed at the chosen stage.
-                      </span>
-                    </label>
-                  </div>
-
-                  {scenario.autoStage && (
-                    <div className="ml-7 flex flex-wrap items-center gap-2">
-                      <label htmlFor={`min-exch-${scenario.id}`} className="text-xs text-gray-600">
-                        Minimum exchanges at a stage before it can escalate
-                      </label>
+                  {/* Auto Stage toggle (+ its dependent min-exchanges setting) */}
+                  <div className="bg-gray-50 rounded-lg p-3 border border-gray-200">
+                    <div className="flex items-start gap-3">
                       <input
-                        id={`min-exch-${scenario.id}`}
-                        type="number"
-                        min={0}
-                        value={scenario.minExchangesPerStage ?? 5}
-                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'minExchangesPerStage', Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        id={`auto-stage-${scenario.id}`}
+                        type="checkbox"
+                        checked={scenario.autoStage}
+                        onChange={(e) => handleUpdateScenario(scenarioIndex, 'autoStage', e.target.checked)}
+                        className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer"
                       />
-                      <span className="text-xs text-gray-400">(0 = no minimum; protective replies also hold the stage)</span>
+                      <label htmlFor={`auto-stage-${scenario.id}`} className="cursor-pointer">
+                        <span className="block text-sm font-medium text-gray-800">
+                          Automatically change the grooming stage
+                        </span>
+                        <span className="block text-xs text-gray-500">
+                          When on, the model changes the stage as the conversation develops and
+                          responds accordingly — it can move <span className="font-medium">up or down</span> between
+                          the minimum and maximum stages below. When off, the conversation stays
+                          fixed at the chosen stage.
+                        </span>
+                      </label>
                     </div>
-                  )}
+
+                    {scenario.autoStage && (
+                      <div className="mt-3 ml-7 flex flex-wrap items-center gap-2 border-t border-gray-200 pt-3">
+                        <label htmlFor={`min-exch-${scenario.id}`} className="text-xs text-gray-600">
+                          Minimum exchanges at a stage before it can escalate
+                        </label>
+                        <input
+                          id={`min-exch-${scenario.id}`}
+                          type="number"
+                          min={0}
+                          value={scenario.minExchangesPerStage ?? 5}
+                          onChange={(e) => handleUpdateScenario(scenarioIndex, 'minExchangesPerStage', Math.max(0, parseInt(e.target.value) || 0))}
+                          className="w-16 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                        <span className="text-xs text-gray-400">(0 = no minimum; protective replies also hold the stage)</span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Stage controls: starting stage, plus min/max bounds in auto mode */}
                   <div>

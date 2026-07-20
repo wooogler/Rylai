@@ -124,8 +124,9 @@ export const defaultScenarios: DefaultScenario[] = [
   },
   {
     // §6.1b assessment: a fresh stranger, natural progression across all stages, no
-    // feedback/stage UI/gate. Ends automatically after ~100 messages (the doc's preferred
-    // stopping rule), so participants aren't cut off too soon (floor effect).
+    // feedback/stage UI/gate. Ends automatically after a set number of messages (educator-
+    // tunable; kept modest so participants aren't dragged on, but long enough to avoid a
+    // floor effect).
     slug: 'scenario-3-assessment',
     name: 'Scenario 3: A New Conversation',
     predatorName: 'Jamie',
@@ -141,7 +142,7 @@ export const defaultScenarios: DefaultScenario[] = [
     timeGapLabel: '',
     splashMarkdown: SCENARIO_3_SPLASH,
     assessmentMode: true,
-    maxMessages: 100,
+    maxMessages: 30,
     presetMessages: [
       { id: '1', text: 'heyy, saw your comment on that new game trailer 😅 you into it too?', sender: 'other', timestamp: new Date().toISOString() },
     ],
