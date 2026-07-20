@@ -89,8 +89,9 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - Record a lifecycle exit for a scenario: 'completed' (final-scenario "End Chat")
-// or 'comfort_exit' ("I don't feel comfortable anymore."). Stamps the matching timestamp.
+// PATCH - Record a lifecycle event for a scenario: 'completed' (finished — advanced to the
+// next scenario, ended the final chat, or the assessment hit its message limit) or
+// 'comfort_exit' ("I don't feel comfortable anymore."). Timestamps are sticky (first only).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
@@ -101,7 +102,6 @@ export async function PATCH(request: NextRequest) {
     }
 
     const now = new Date();
-    const stamp = kind === 'completed' ? { completedAt: now } : { comfortExitAt: now };
 
     const existing = await db.query.scenarioProgress.findFirst({
       where: and(
@@ -111,10 +111,17 @@ export async function PATCH(request: NextRequest) {
     });
 
     if (existing) {
-      await db.update(scenarioProgress)
-        .set(stamp)
-        .where(eq(scenarioProgress.id, existing.id));
+      // Sticky: keep the first time each event happened.
+      const stamp = kind === 'completed'
+        ? (existing.completedAt ? {} : { completedAt: now })
+        : (existing.comfortExitAt ? {} : { comfortExitAt: now });
+      if (Object.keys(stamp).length > 0) {
+        await db.update(scenarioProgress)
+          .set(stamp)
+          .where(eq(scenarioProgress.id, existing.id));
+      }
     } else {
+      const stamp = kind === 'completed' ? { completedAt: now } : { comfortExitAt: now };
       await db.insert(scenarioProgress).values({
         userId,
         scenarioId,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check, Link2, X } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X, MessageSquare } from "lucide-react";
 
 // Per-scenario progress summary for the participant who redeemed a code (server-computed
 // from scenario_progress — see /api/access-codes GET).
@@ -241,7 +241,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                               return (
                                 <span
                                   key={p.scenarioId}
-                                  title={`${p.scenarioName} — ${started ? `${p.messageCount} msgs · ${rate}% safe${reached ? " · target reached" : ""}` : "not started"}`}
+                                  title={`${p.scenarioName} — ${started ? `${p.messageCount} messages · ${rate}% safe${reached ? " · target reached" : ""}` : "not started"}`}
                                   className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
                                     reached
                                       ? "border-emerald-200 bg-emerald-50 text-emerald-700"
@@ -250,9 +250,18 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                                       : "border-gray-200/70 bg-white text-gray-300"
                                   }`}
                                 >
-                                  S{i + 1}
-                                  {started && <span>{rate}%</span>}
-                                  {reached && <Check className="w-3 h-3" />}
+                                  <span className="font-semibold">S{i + 1}</span>
+                                  {started ? (
+                                    <>
+                                      <span className="inline-flex items-center gap-0.5 opacity-70">
+                                        <MessageSquare className="h-2.5 w-2.5" />{p.messageCount}
+                                      </span>
+                                      <span>{rate}%</span>
+                                      {reached && <Check className="h-3 w-3" />}
+                                    </>
+                                  ) : (
+                                    <span className="opacity-60">—</span>
+                                  )}
                                 </span>
                               );
                             })}
@@ -353,7 +362,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                           <div><dt className="text-gray-400">Replies (P · N · V)</dt><dd className="font-medium text-gray-800">{p.protectiveCount} · {p.neutralCount} · {p.vulnerableCount}</dd></div>
                           <div><dt className="text-gray-400">Visits</dt><dd className="font-medium text-gray-800">{p.visitCount}</dd></div>
                           <div><dt className="text-gray-400">Target reached</dt><dd className="font-medium text-gray-800">{fmtDate(p.masteryReachedAt)}</dd></div>
-                          <div><dt className="text-gray-400">Ended (End Chat)</dt><dd className="font-medium text-gray-800">{fmtDate(p.completedAt)}</dd></div>
+                          <div><dt className="text-gray-400">Finished</dt><dd className="font-medium text-gray-800">{fmtDate(p.completedAt)}</dd></div>
                           <div><dt className="text-gray-400">Comfort exit</dt><dd className="font-medium text-gray-800">{fmtDate(p.comfortExitAt)}</dd></div>
                           <div className="col-span-2 sm:col-span-3"><dt className="text-gray-400 inline">Last active:</dt>{" "}<dd className="inline font-medium text-gray-800">{fmtDate(p.lastVisitedAt)}</dd></div>
                         </dl>

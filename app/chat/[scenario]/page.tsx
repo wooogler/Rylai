@@ -720,6 +720,8 @@ export default function ChatPage() {
       return;
     }
     if (currentScenario < scenarios.length - 1) {
+      // Advancing counts as finishing this scenario — record when (sticky, first finish).
+      if (sc && userType === 'user') recordScenarioLifecycle(sc.id, 'completed');
       const nextScenario = currentScenario + 1;
       router.push(`/chat/${scenarios[nextScenario].slug}`);
       setCurrentScenario(nextScenario);
