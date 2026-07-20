@@ -271,7 +271,7 @@ interface ScenarioStore {
     classificationConfig: ClassificationConfig | null
   ) => Promise<void>;
   saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
-  addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<void>;
+  addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<Scenario | null>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
   restoreDefaultScenarios: () => Promise<void>;
@@ -461,7 +461,7 @@ export const useScenarioStore = create<ScenarioStore>()(
 
       addScenario: async (scenario: Omit<Scenario, 'id'>) => {
         const { userId } = get();
-        if (!userId) return;
+        if (!userId) return null;
 
         try {
           const response = await fetch('/api/scenarios', {
@@ -479,6 +479,11 @@ export const useScenarioStore = create<ScenarioStore>()(
           set((state) => ({
             scenarios: [...state.scenarios, newScenario],
           }));
+
+          // Return the server-created scenario (with its real, DB-assigned id) so callers
+          // can reconcile any temporary client-side id — critical for auto-save, which must
+          // not re-add the same scenario on the next pass.
+          return newScenario as Scenario;
         } catch (error) {
           console.error('Error adding scenario:', error);
           throw error;

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Save, MessageSquare, Download, Upload, LogOut, Check, RotateCcw } from "lucide-react";
+import { Plus, Trash2, MessageSquare, Download, Upload, LogOut, Check, RotateCcw, Loader2, AlertCircle } from "lucide-react";
 import { useScenarioStore, type Scenario, type Message, GROOMING_STAGES } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import PromptEditor, {
@@ -83,38 +83,133 @@ export default function AdminPage() {
   const [editWelcome, setEditWelcome] = useState<string>('');
   const [showWelcomePreview, setShowWelcomePreview] = useState(false);
   const [splashPreview, setSplashPreview] = useState<Record<number, boolean>>({});
-  const [hasChanges, setHasChanges] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
+  // Auto-save status shown where the old "Save Changes" button was.
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [isRestoring, setIsRestoring] = useState(false);
   const [activeTab, setActiveTab] = useState<'scenarios' | 'prompts' | 'preview' | 'access'>('access');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- Safe auto-save plumbing -------------------------------------------------------------
+  // dirtyRef: edits exist that a save hasn't captured yet.
+  // savingRef: a save round-trip is currently in flight.
+  // saveTimerRef: the pending debounce timer.
+  // initedRef: the edit buffers have been hydrated from the store at least once.
+  // latestRef: an always-current snapshot of the edit buffers, read by the debounced saver
+  //            (which fires from a timeout and would otherwise see stale closure values).
+  const dirtyRef = useRef(false);
+  const savingRef = useRef(false);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initedRef = useRef(false);
+  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome });
+  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome };
+
+  // Backfill newer per-scenario fields so older persisted/imported scenarios keep every input
+  // controlled (no undefined -> defined warning). Shared by the sync effect and Add.
+  const backfillScenario = (s: Scenario): Scenario => ({
+    ...s,
+    minStage: s.minStage ?? 1,
+    maxStage: s.maxStage ?? 6,
+    masteryEnabled: s.masteryEnabled ?? false,
+    masteryTargetRate: s.masteryTargetRate ?? 80,
+    masteryMinResponses: s.masteryMinResponses ?? 20,
+    masteryThreshold: s.masteryThreshold ?? 5,
+    minExchangesPerStage: s.minExchangesPerStage ?? 5,
+    persistMessages: s.persistMessages ?? false,
+    timeGapLabel: s.timeGapLabel ?? '',
+    splashMarkdown: s.splashMarkdown ?? null,
+    assessmentMode: s.assessmentMode ?? false,
+    maxMessages: s.maxMessages ?? 0,
+  });
+
+  // The actual save: persists global settings + UPDATES existing scenarios. Adds and deletes
+  // are applied immediately by their handlers (so every buffered scenario already has a real,
+  // server-assigned id), which is what keeps auto-save from ever duplicating a new scenario.
+  const flushSave = async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (savingRef.current) return; // a save is already running; it re-checks dirty when it ends
+    const snap = latestRef.current;
+    dirtyRef.current = false; // capture point — edits after this re-arm dirty and reschedule
+    savingRef.current = true;
+    setSaveStatus('saving');
+    try {
+      await setAge(snap.editingAge);
+      await saveAdminPrompts(
+        fromFeedbackEdit(snap.editFeedback),
+        fromClassificationEdit(snap.editClassification)
+      );
+      await saveWelcomeMarkdown(snap.editWelcome);
+
+      const storeIds = new Set(useScenarioStore.getState().scenarios.map((s) => s.id));
+      for (const scenario of snap.editingScenarios) {
+        if (storeIds.has(scenario.id)) {
+          await updateScenario(scenario.id, scenario);
+        }
+      }
+
+      savingRef.current = false;
+      if (dirtyRef.current) {
+        scheduleSave(); // more edits arrived mid-save — capture them
+      } else {
+        setSaveStatus('saved');
+      }
+    } catch (error) {
+      console.error('Auto-save failed:', error);
+      savingRef.current = false;
+      dirtyRef.current = true; // leave as unsaved so a later flush retries
+      setSaveStatus('error');
+    }
+  };
+
+  // Mark the buffers dirty and (re)arm the debounce. Called by every field-edit handler.
+  const scheduleSave = () => {
+    dirtyRef.current = true;
+    setSaveStatus('saving');
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      void flushSave();
+    }, 800);
+  };
+
+  // Copy the live store into the edit buffers. Used by the sync effect (initial load /
+  // external change) and imperatively after Import, where the store is replaced while a save
+  // is in flight and the effect would otherwise leave the buffers stale.
+  const hydrateBuffersFromStore = () => {
+    const st = useScenarioStore.getState();
+    const cloned: Scenario[] = JSON.parse(JSON.stringify(st.scenarios));
+    setEditingScenarios(cloned.map(backfillScenario));
+    setEditingAge(st.age);
+    setEditFeedback(toFeedbackEdit(st.feedbackConfig));
+    setEditClassification(toClassificationEdit(st.classificationConfig));
+    setEditWelcome(st.welcomeMarkdown ?? '');
+    initedRef.current = true;
+  };
+
   useEffect(() => {
-    // Fill defaults for newer per-scenario fields so older persisted scenarios (which may
-    // lack them) keep the inputs controlled (no undefined -> defined warning).
-    const cloned: Scenario[] = JSON.parse(JSON.stringify(scenarios));
-    setEditingScenarios(
-      cloned.map((s) => ({
-        ...s,
-        minStage: s.minStage ?? 1,
-        maxStage: s.maxStage ?? 6,
-        masteryEnabled: s.masteryEnabled ?? false,
-        masteryTargetRate: s.masteryTargetRate ?? 80,
-        masteryMinResponses: s.masteryMinResponses ?? 20,
-        masteryThreshold: s.masteryThreshold ?? 5,
-        minExchangesPerStage: s.minExchangesPerStage ?? 5,
-        persistMessages: s.persistMessages ?? false,
-        timeGapLabel: s.timeGapLabel ?? '',
-        splashMarkdown: s.splashMarkdown ?? null,
-        assessmentMode: s.assessmentMode ?? false,
-        maxMessages: s.maxMessages ?? 0,
-      }))
-    );
-    setEditingAge(age);
-    setEditFeedback(toFeedbackEdit(feedbackConfig));
-    setEditClassification(toClassificationEdit(classificationConfig));
-    setEditWelcome(welcomeMarkdown ?? '');
+    // Pull the store into the edit buffers on first load and on genuinely external
+    // replacements (Restore defaults, both of which run while dirtyRef is false). Skip while
+    // the educator is mid-edit or a save is in flight — re-cloning then would clobber the
+    // buffer (lost keystrokes / cursor jump) or race the save. (Import re-hydrates itself,
+    // since it replaces the store while savingRef is held.)
+    if (dirtyRef.current || savingRef.current) return;
+    hydrateBuffersFromStore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown]);
+
+  // Warn before leaving with an unsaved/in-flight edit (auto-save is debounced, so a fast
+  // tab-close could otherwise drop the last change).
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current || savingRef.current) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
 
   const handleUpdateScenario = <K extends keyof Scenario>(index: number, field: K, value: Scenario[K]) => {
     const updated = [...editingScenarios];
@@ -140,7 +235,7 @@ export default function AdminPage() {
     }
 
     setEditingScenarios(updated);
-    setHasChanges(true);
+    scheduleSave();
   };
 
   // Update several scenario fields at once (e.g. starting stage + max stage together,
@@ -149,14 +244,14 @@ export default function AdminPage() {
     const updated = [...editingScenarios];
     updated[index] = { ...updated[index], ...fields };
     setEditingScenarios(updated);
-    setHasChanges(true);
+    scheduleSave();
   };
 
   const handleUpdateMessage = (scenarioIndex: number, messageIndex: number, text: string) => {
     const updated = [...editingScenarios];
     updated[scenarioIndex].presetMessages[messageIndex].text = text;
     setEditingScenarios(updated);
-    setHasChanges(true);
+    scheduleSave();
   };
 
   const handleAddMessage = (scenarioIndex: number, sender: "user" | "other") => {
@@ -169,19 +264,18 @@ export default function AdminPage() {
     };
     updated[scenarioIndex].presetMessages.push(newMessage);
     setEditingScenarios(updated);
-    setHasChanges(true);
+    scheduleSave();
   };
 
   const handleDeleteMessage = (scenarioIndex: number, messageIndex: number) => {
     const updated = [...editingScenarios];
     updated[scenarioIndex].presetMessages.splice(messageIndex, 1);
     setEditingScenarios(updated);
-    setHasChanges(true);
+    scheduleSave();
   };
 
-  const handleAddScenario = () => {
-    const newScenario: Scenario = {
-      id: Math.max(...editingScenarios.map(s => s.id), 0) + 1,
+  const handleAddScenario = async () => {
+    const draft: Omit<Scenario, 'id'> = {
       slug: uniqueSlug("new-scenario", editingScenarios.map(s => s.slug)),
       name: "New Scenario",
       predatorName: "New Predator",
@@ -203,15 +297,45 @@ export default function AdminPage() {
       assessmentMode: false,
       maxMessages: 0,
     };
-    setEditingScenarios([...editingScenarios, newScenario]);
-    setHasChanges(true);
+    // Persist immediately so the new scenario gets its real, DB-assigned id up front. The
+    // debounced auto-save only ever UPDATES existing scenarios, so creating here (rather than
+    // with a temporary client id the saver would fail to match) is what prevents duplicates.
+    setSaveStatus('saving');
+    try {
+      const created = await addScenario(draft);
+      if (created) {
+        setEditingScenarios((prev) => [...prev, backfillScenario(created)]);
+      }
+      if (!dirtyRef.current && !savingRef.current) setSaveStatus('saved');
+    } catch (error) {
+      console.error('Failed to add scenario:', error);
+      setSaveStatus('error');
+    }
   };
 
-  const handleDeleteScenario = (index: number) => {
-    const updated = [...editingScenarios];
-    updated.splice(index, 1);
-    setEditingScenarios(updated);
-    setHasChanges(true);
+  const handleDeleteScenario = async (index: number) => {
+    const target = editingScenarios[index];
+    if (!target) return;
+    // Destructive (cascades to learner messages/feedback/progress) — keep the confirm.
+    if (!confirm(
+      `Delete scenario "${target.name}"?\n\n` +
+      `This permanently removes it along with every learner message, feedback entry, and ` +
+      `progress record tied to it.\n\nThis cannot be undone.`
+    )) {
+      return;
+    }
+    // Optimistically drop it from the buffer, then persist the delete right away.
+    setEditingScenarios((prev) => prev.filter((_, i) => i !== index));
+    const inStore = useScenarioStore.getState().scenarios.some((s) => s.id === target.id);
+    if (!inStore) return; // never saved — local removal is enough
+    setSaveStatus('saving');
+    try {
+      await deleteScenario(target.id);
+      if (!dirtyRef.current && !savingRef.current) setSaveStatus('saved');
+    } catch (error) {
+      console.error('Failed to delete scenario:', error);
+      setSaveStatus('error');
+    }
   };
 
   // Replace all scenarios with the two default RYLAI study scenarios. Destructive: wipes
@@ -227,55 +351,82 @@ export default function AdminPage() {
       return;
     }
     setIsRestoring(true);
+    // Abandon any pending auto-save; we're replacing everything from the server, and the
+    // sync effect will re-hydrate the buffers once the store updates.
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    dirtyRef.current = false;
     try {
       await restoreDefaultScenarios();
-      setHasChanges(false);
+      setSaveStatus('saved');
     } catch (error) {
       console.error('Failed to restore default scenarios:', error);
       alert('Failed to restore default scenarios. Please try again.');
+      setSaveStatus('error');
     } finally {
       setIsRestoring(false);
     }
   };
 
-  const handleSave = async () => {
+  // Apply an imported bundle as one immediate, full reconcile (globals + add/update/delete
+  // scenarios to match the file), then let the sync effect re-hydrate the buffers. Import is
+  // a discrete user action, not a background save, so it can safely add/delete here.
+  const applyImportedSettings = async (
+    list: Scenario[],
+    globals: {
+      age?: number | null;
+      feedbackConfig?: ReturnType<typeof fromFeedbackEdit>;
+      classificationConfig?: ReturnType<typeof fromClassificationEdit>;
+      welcome?: string;
+    }
+  ) => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    dirtyRef.current = false;
+    savingRef.current = true;
+    setSaveStatus('saving');
     try {
-      // Save the global age setting
-      await setAge(editingAge);
+      if (globals.age !== undefined) await setAge(globals.age);
+      if (globals.feedbackConfig !== undefined || globals.classificationConfig !== undefined) {
+        const st = useScenarioStore.getState();
+        await saveAdminPrompts(
+          globals.feedbackConfig !== undefined ? globals.feedbackConfig : st.feedbackConfig,
+          globals.classificationConfig !== undefined ? globals.classificationConfig : st.classificationConfig
+        );
+      }
+      if (globals.welcome !== undefined) await saveWelcomeMarkdown(globals.welcome);
 
-      // Save the feedback / classification prompt overrides (null = system defaults)
-      await saveAdminPrompts(
-        fromFeedbackEdit(editFeedback),
-        fromClassificationEdit(editClassification)
-      );
-
-      // Save the Welcome-screen content (empty = no welcome screen for learners)
-      await saveWelcomeMarkdown(editWelcome);
-
-      // Update existing scenarios
-      for (const scenario of editingScenarios) {
-        if (scenarios.find(s => s.id === scenario.id)) {
-          await updateScenario(scenario.id, scenario);
+      // Reconcile scenarios: update where the file's id matches an existing one (preserving
+      // its learner data), add the rest, delete store scenarios absent from the file.
+      const storeIds = new Set(useScenarioStore.getState().scenarios.map((s) => s.id));
+      const keptIds = new Set<number>();
+      for (const s of list) {
+        if (typeof s.id === 'number' && storeIds.has(s.id)) {
+          await updateScenario(s.id, s);
+          keptIds.add(s.id);
         } else {
           // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id, ...rest } = scenario;
-          await addScenario(rest);
+          const { id, ...rest } = s;
+          const created = await addScenario(rest);
+          if (created) keptIds.add(created.id);
         }
       }
-
-      // Delete scenarios that were removed
-      for (const scenario of scenarios) {
-        if (!editingScenarios.find(s => s.id === scenario.id)) {
-          await deleteScenario(scenario.id);
-        }
+      for (const s of useScenarioStore.getState().scenarios) {
+        if (!keptIds.has(s.id)) await deleteScenario(s.id);
       }
 
-      setHasChanges(false);
-      setJustSaved(true);
-      setTimeout(() => setJustSaved(false), 2000);
+      savingRef.current = false;
+      hydrateBuffersFromStore(); // the effect was suppressed during the in-flight reconcile
+      setSaveStatus('saved');
     } catch (error) {
-      console.error("Error saving settings:", error);
-      alert("Failed to save settings. Please try again.");
+      console.error('Failed to import settings:', error);
+      savingRef.current = false;
+      setSaveStatus('error');
+      alert('Failed to import settings. Please try again.');
     }
   };
 
@@ -316,41 +467,52 @@ export default function AdminPage() {
 
         // Support old formats (a bare scenarios array, or { scenarios, age }) as well as
         // the current format, which also carries the feedback / classification prompt
-        // overrides. Prompt fields are only applied when present in the file.
-        // Older exports predate per-scenario fields like maxStage; backfill defaults.
-        const withDefaults = (list: Scenario[]) =>
-          list.map((s) => ({
-            ...s,
-            minStage: s.minStage ?? 1,
-            maxStage: s.maxStage ?? 6,
-            masteryTargetRate: s.masteryTargetRate ?? 80,
-            masteryMinResponses: s.masteryMinResponses ?? 20,
-            minExchangesPerStage: s.minExchangesPerStage ?? 5,
-            timeGapLabel: s.timeGapLabel ?? '',
-            splashMarkdown: s.splashMarkdown ?? null,
-            assessmentMode: s.assessmentMode ?? false,
-            maxMessages: s.maxMessages ?? 0,
-          }));
-        if (Array.isArray(imported)) {
-          setEditingScenarios(withDefaults(imported));
-        } else if (imported.scenarios) {
-          setEditingScenarios(withDefaults(imported.scenarios));
+        // overrides. Prompt fields are only applied when present in the file. Older exports
+        // predate per-scenario fields like maxStage; backfillScenario fills them in.
+        const rawList: Scenario[] | null = Array.isArray(imported)
+          ? imported
+          : imported && Array.isArray(imported.scenarios)
+            ? imported.scenarios
+            : null;
+        if (!rawList) {
+          alert('Failed to import settings. Please check the file format.');
+          return;
+        }
+
+        // Import now persists immediately (there's no separate Save step), so warn: it
+        // replaces the current scenarios and removes any not in the file (with their data).
+        if (!confirm(
+          `Import settings from this file?\n\n` +
+          `This replaces your current scenarios and prompt settings with the file's. ` +
+          `Scenarios not in the file — and their learner data — will be removed.\n\n` +
+          `This cannot be undone.`
+        )) {
+          return;
+        }
+
+        const list = rawList.map(backfillScenario);
+        const globals: {
+          age?: number | null;
+          feedbackConfig?: ReturnType<typeof fromFeedbackEdit>;
+          classificationConfig?: ReturnType<typeof fromClassificationEdit>;
+          welcome?: string;
+        } = {};
+        if (!Array.isArray(imported)) {
           if ('age' in imported) {
-            setEditingAge(typeof imported.age === 'number' ? imported.age : null);
+            globals.age = typeof imported.age === 'number' ? imported.age : null;
           }
           if ('feedbackConfig' in imported) {
-            setEditFeedback(toFeedbackEdit(imported.feedbackConfig ?? null));
+            globals.feedbackConfig = fromFeedbackEdit(toFeedbackEdit(imported.feedbackConfig ?? null));
           }
           if ('classificationConfig' in imported) {
-            setEditClassification(toClassificationEdit(imported.classificationConfig ?? null));
+            globals.classificationConfig = fromClassificationEdit(toClassificationEdit(imported.classificationConfig ?? null));
           }
           if ('welcomeMarkdown' in imported) {
-            setEditWelcome(typeof imported.welcomeMarkdown === 'string' ? imported.welcomeMarkdown : '');
+            globals.welcome = typeof imported.welcomeMarkdown === 'string' ? imported.welcomeMarkdown : '';
           }
         }
 
-        setHasChanges(true);
-        alert("Settings imported successfully!");
+        void applyImportedSettings(list, globals);
       } catch (error) {
         alert("Failed to import settings. Please check the file format.");
         console.error(error);
@@ -413,6 +575,7 @@ export default function AdminPage() {
               </Button>
               <Button
                 onClick={async () => {
+                  await flushSave(); // don't drop a pending edit on the way out
                   await logout();
                   router.push("/");
                 }}
@@ -452,42 +615,49 @@ export default function AdminPage() {
               <div className="w-px h-5 bg-gray-200" aria-hidden />
               <div className="relative group">
                 <Button
-                  onClick={() => scenarios[0] && router.push(`/chat/${scenarios[0].slug}`)}
-                  disabled={scenarios.length === 0 || hasChanges}
+                  onClick={async () => {
+                    // Flush any pending edit so Test Chat opens the just-saved version.
+                    await flushSave();
+                    const first = useScenarioStore.getState().scenarios[0];
+                    if (first) router.push(`/chat/${first.slug}`);
+                  }}
+                  disabled={scenarios.length === 0}
                   variant="secondary"
                   size="small"
-                  className={scenarios.length === 0 || hasChanges ? 'pointer-events-none' : undefined}
+                  className={scenarios.length === 0 ? 'pointer-events-none' : undefined}
                 >
                   <MessageSquare className="w-4 h-4 mr-1.5 inline" />
                   Test Chat
                 </Button>
-                {(hasChanges || scenarios.length === 0) && (
+                {scenarios.length === 0 && (
                   <div className="absolute z-50 hidden group-hover:block top-full right-0 mt-2 w-56 p-2.5 rounded-lg bg-gray-900 text-white text-xs font-normal shadow-xl leading-snug">
-                    {hasChanges
-                      ? 'Save your changes first — Test Chat opens the saved version of your scenarios.'
-                      : 'Add a scenario before testing.'}
+                    Add a scenario before testing.
                   </div>
                 )}
               </div>
-              <Button
-                onClick={handleSave}
-                disabled={!hasChanges}
-                variant="primary"
-                size="small"
-                className="inline-flex items-center justify-center min-w-[140px]"
-              >
-                {justSaved ? (
-                  <>
-                    <Check className="w-4 h-4 mr-1.5" />
-                    Saved
-                  </>
+              {/* Auto-save status (replaces the old "Save Changes" button) */}
+              <div className="min-w-[150px] flex items-center justify-end" aria-live="polite">
+                {saveStatus === 'saving' ? (
+                  <span className="inline-flex items-center text-sm text-gray-500">
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    Saving…
+                  </span>
+                ) : saveStatus === 'error' ? (
+                  <button
+                    type="button"
+                    onClick={() => { void flushSave(); }}
+                    className="inline-flex items-center text-sm text-red-600 hover:text-red-700 hover:underline"
+                  >
+                    <AlertCircle className="w-4 h-4 mr-1.5" />
+                    Save failed — retry
+                  </button>
                 ) : (
-                  <>
-                    <Save className="w-4 h-4 mr-1.5" />
-                    Save Changes
-                  </>
+                  <span className={`inline-flex items-center text-sm ${saveStatus === 'saved' ? 'text-green-600' : 'text-gray-400'}`}>
+                    <Check className="w-4 h-4 mr-1.5" />
+                    All changes saved
+                  </span>
                 )}
-              </Button>
+              </div>
             </div>
           </div>
           <h1 className="text-3xl font-bold">Educator Settings</h1>
@@ -538,15 +708,15 @@ export default function AdminPage() {
               age={editingAge}
               onAgeChange={(next) => {
                 setEditingAge(next);
-                setHasChanges(true);
+                scheduleSave();
               }}
               onFeedbackChange={(next) => {
                 setEditFeedback(next);
-                setHasChanges(true);
+                scheduleSave();
               }}
               onClassificationChange={(next) => {
                 setEditClassification(next);
-                setHasChanges(true);
+                scheduleSave();
               }}
             />
           </div>
@@ -591,7 +761,7 @@ export default function AdminPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => { setEditWelcome(DEFAULT_WELCOME_MARKDOWN); setHasChanges(true); }}
+                  onClick={() => { setEditWelcome(DEFAULT_WELCOME_MARKDOWN); scheduleSave(); }}
                   className="text-sm text-gray-500 hover:text-gray-700"
                   title="Reset to the default welcome content"
                 >
@@ -608,7 +778,7 @@ export default function AdminPage() {
             ) : (
               <textarea
                 value={editWelcome}
-                onChange={(e) => { setEditWelcome(e.target.value); setHasChanges(true); }}
+                onChange={(e) => { setEditWelcome(e.target.value); scheduleSave(); }}
                 rows={10}
                 placeholder="Welcome content (Markdown)…"
                 className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
