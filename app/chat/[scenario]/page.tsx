@@ -353,10 +353,14 @@ export default function ChatPage() {
   // the full `conversation` — which includes the predator's reply that followed it, so
   // the feedback is grounded in how the predator actually reacted. `stage` is the
   // grooming stage the reply was made in.
-  const generateFeedback = async (conversation: Message[], userReplyIndex: number, stage: number) => {
+  //
+  // `silent` (assessment mode, §6.1b): still classify the reply and record the score for
+  // research — the assessment's whole point is measuring the Safe Response Rate — but show
+  // NOTHING to the participant (no feedback card, no classification badge, no loading state).
+  const generateFeedback = async (conversation: Message[], userReplyIndex: number, stage: number, silent = false) => {
     const target = conversation[userReplyIndex];
     if (!target) return;
-    setPendingFeedbackId(target.id);
+    if (!silent) setPendingFeedbackId(target.id);
 
     try {
       const response = await fetch('/api/feedback', {
@@ -373,53 +377,59 @@ export default function ChatPage() {
       const data = await response.json();
       if (!data.feedback) throw new Error('No feedback in response');
 
-      // Anchor the feedback to the participant's reply (comment card in the gutter).
-      setFeedbackByMessageId(prev => new Map(prev).set(target.id, data.feedback));
-      setExpandedCommentId(target.id);
-
-      // Classification applies to a participant (user) reply only.
       const hasClassification = target.sender === 'user' && !!data.classification;
-      if (hasClassification) {
-        setMessages(prev => prev.map(msg =>
-          msg.id === target.id
-            ? {
-                ...msg,
-                classification: data.classification,
-                responseType: data.responseType,
-                tacticRecognized: data.tacticRecognized,
-                protectiveStrategy: data.protectiveStrategy,
-                rationale: data.rationale,
-              }
-            : msg
-        ));
+
+      if (!silent) {
+        // Anchor the feedback to the participant's reply (comment card in the gutter).
+        setFeedbackByMessageId(prev => new Map(prev).set(target.id, data.feedback));
+        setExpandedCommentId(target.id);
+        // Classification applies to a participant (user) reply only.
+        if (hasClassification) {
+          setMessages(prev => prev.map(msg =>
+            msg.id === target.id
+              ? {
+                  ...msg,
+                  classification: data.classification,
+                  responseType: data.responseType,
+                  tacticRecognized: data.tacticRecognized,
+                  protectiveStrategy: data.protectiveStrategy,
+                  rationale: data.rationale,
+                }
+              : msg
+          ));
+        }
       }
 
-      // Save feedback + classification for learners (and admin previews under their own id).
-      if (userId) {
+      // Persist the classification + score for learners (and admin previews under their own
+      // id). In silent (assessment) mode we skip the teen-facing feedback text but still
+      // record the classification so the educator sees the assessment results afterward.
+      if (userId && hasClassification) {
         try {
-          await saveUserFeedback(scenarios[currentScenario].id, target.id, data.feedback);
-          if (hasClassification) {
-            const progress = await saveResponseClassification(scenarios[currentScenario].id, target.id, {
-              classification: data.classification,
-              responseType: data.responseType ?? 'none',
-              tacticRecognized: !!data.tacticRecognized,
-              protectiveStrategy: !!data.protectiveStrategy,
-              rationale: data.rationale ?? '',
-            });
-            // Server recomputes the scenario's Safe Response Rate; sync it and, if the
-            // target was just reached, show the congratulations modal.
-            if (progress) applyProgressUpdate(progress);
+          if (!silent) {
+            await saveUserFeedback(scenarios[currentScenario].id, target.id, data.feedback);
           }
+          const progress = await saveResponseClassification(scenarios[currentScenario].id, target.id, {
+            classification: data.classification,
+            responseType: data.responseType ?? 'none',
+            tacticRecognized: !!data.tacticRecognized,
+            protectiveStrategy: !!data.protectiveStrategy,
+            rationale: data.rationale ?? '',
+          });
+          // Server recomputes the scenario's Safe Response Rate; sync it and, if the target
+          // was just reached (training only), show the congratulations modal.
+          if (progress) applyProgressUpdate(progress);
         } catch (error) {
           console.error('Failed to save feedback/classification:', error);
         }
       }
     } catch (error) {
       console.error('Feedback generation error:', error);
-      setFeedbackByMessageId(prev => new Map(prev).set(target.id, 'Failed to generate feedback. Please try again.'));
-      setExpandedCommentId(target.id);
+      if (!silent) {
+        setFeedbackByMessageId(prev => new Map(prev).set(target.id, 'Failed to generate feedback. Please try again.'));
+        setExpandedCommentId(target.id);
+      }
     } finally {
-      setPendingFeedbackId(null);
+      if (!silent) setPendingFeedbackId(null);
     }
   };
 
@@ -546,8 +556,10 @@ export default function ChatPage() {
         setIsTyping(false);
 
         if (scenario.assessmentMode) {
-          // 6.1b assessment: no feedback agent. End the session once the message limit
-          // (counting both sides) is reached (§6.1b, L223–225).
+          // 6.1b assessment: no feedback is SHOWN, but classify the reply silently so the
+          // Safe Response Rate is recorded for research (the assessment's purpose).
+          generateFeedback(conversationWithReply, userReplyIndex, replyStage, true);
+          // End the session once the message limit (counting both sides) is reached (L223–225).
           if (scenario.maxMessages > 0 && conversationWithReply.length >= scenario.maxMessages) {
             setEndedReason('completed');
             if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
@@ -1063,6 +1075,7 @@ export default function ChatPage() {
                         isLastInGroup={isLastInGroup}
                         showAvatar={showAvatar}
                         avatarSeed={scenario.handle}
+                        hideClassification={isAssessment}
                         onClick={
                           hasComment
                             ? () => setExpandedCommentId(prev => (prev === message.id ? null : message.id))

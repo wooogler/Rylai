@@ -7,6 +7,9 @@ interface MessageBubbleProps {
   isLastInGroup: boolean;
   showAvatar: boolean;
   avatarSeed: string;
+  // Assessment mode classifies silently for research but shows the participant nothing —
+  // hide the protective/neutral/vulnerable label + colored border.
+  hideClassification?: boolean;
   // For user messages: view the feedback that was generated for this reply.
   onClick?: () => void;
 }
@@ -20,12 +23,14 @@ export default function MessageBubble({
   isLastInGroup,
   showAvatar,
   avatarSeed,
+  hideClassification = false,
   onClick,
 }: MessageBubbleProps) {
   const isPredator = message.sender === "other";
 
-  // Classification styling for a participant (user) reply, once it has been evaluated.
-  const userClass = message.sender === "user" && message.classification
+  // Classification styling for a participant (user) reply, once it has been evaluated
+  // (suppressed in assessment mode).
+  const userClass = !hideClassification && message.sender === "user" && message.classification
     ? CLASSIFICATION_META[message.classification]
     : null;
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { accessCodes, users, scenarios, scenarioProgress } from '@/lib/db/schema';
-import { and, eq, inArray } from 'drizzle-orm';
+import { accessCodes, users, scenarios, scenarioProgress, userMessages } from '@/lib/db/schema';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 // Educator-issued participant access codes (Evaluation Plan §6, L101–102). Codes gate learner
 // signup: a learner must present an unused code, which is then consumed.
@@ -24,6 +24,8 @@ interface CodeProgress {
   comfortExitAt: number | null;
   visitCount: number;
   lastVisitedAt: number | null;
+  // Number of messages the participant sent (their own replies) in this scenario.
+  messageCount: number;
 }
 
 // GET ?educatorId= — list this educator's codes (newest first), with the redeeming
@@ -71,10 +73,34 @@ export async function GET(request: NextRequest) {
       progressByUser.get(p.userId)!.set(p.scenarioId, p);
     }
 
+    // Count each participant's own messages (their replies) per scenario. Useful especially
+    // for assessment scenarios, where there's no gate/score to convey activity.
+    const msgCountRows = usedUserIds.length && scenarioIds.length
+      ? await db
+          .select({
+            userId: userMessages.userId,
+            scenarioId: userMessages.scenarioId,
+            count: sql<number>`count(*)`,
+          })
+          .from(userMessages)
+          .where(and(
+            inArray(userMessages.userId, usedUserIds),
+            inArray(userMessages.scenarioId, scenarioIds),
+            eq(userMessages.sender, 'user')
+          ))
+          .groupBy(userMessages.userId, userMessages.scenarioId)
+      : [];
+    const msgCountByUser = new Map<string, Map<number, number>>();
+    for (const r of msgCountRows) {
+      if (!msgCountByUser.has(r.userId)) msgCountByUser.set(r.userId, new Map());
+      msgCountByUser.get(r.userId)!.set(r.scenarioId, Number(r.count));
+    }
+
     const enriched = codes.map((c) => {
       let progress: CodeProgress[] | null = null;
       if (c.usedByUserId) {
         const byScenario = progressByUser.get(c.usedByUserId);
+        const byMsgCount = msgCountByUser.get(c.usedByUserId);
         progress = scenarioRows.map((s) => {
           const p = byScenario?.get(s.id);
           return {
@@ -89,6 +115,7 @@ export async function GET(request: NextRequest) {
             comfortExitAt: p?.comfortExitAt ? p.comfortExitAt.getTime() : null,
             visitCount: p?.visitCount ?? 0,
             lastVisitedAt: p?.lastVisitedAt ? p.lastVisitedAt.getTime() : null,
+            messageCount: byMsgCount?.get(s.id) ?? 0,
           };
         });
       }
