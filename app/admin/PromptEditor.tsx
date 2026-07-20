@@ -237,7 +237,52 @@ export default function PromptEditor({
         </select>
       </div>
 
-      {/* Global fields (all stages) */}
+      {/* Feedback display (§6.2, L238) — a presentation setting (what learners see and how it's
+          laid out), kept separate from the prompt content below, which is about what the
+          feedback and classification say rather than how feedback is shown. */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Feedback display</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          Controls presentation only — which of the three feedback parts learners see, and
+          whether they appear as one message or as separate tabs. It does not change what the
+          feedback says (edit that in the prompts below).
+        </p>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Parts shown</label>
+          <div className="flex flex-wrap gap-4">
+            {FEEDBACK_PART_KEYS.map((k) => (
+              <label key={k} className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={feedback.parts[k]}
+                  onChange={(e) => onFeedbackChange({ ...feedback, parts: { ...feedback.parts, [k]: e.target.checked } })}
+                  className="h-4 w-4 accent-purple-600"
+                />
+                {FEEDBACK_PART_LABELS[k]}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">Layout</label>
+          <div className="flex gap-4">
+            {(['collective', 'tabs'] as const).map((m) => (
+              <label key={m} className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="radio"
+                  name="feedback-display-mode"
+                  checked={feedback.displayMode === m}
+                  onChange={() => onFeedbackChange({ ...feedback, displayMode: m })}
+                  className="h-4 w-4 accent-purple-600"
+                />
+                {m === 'collective' ? 'One message' : 'Separate tabs'}
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Global prompt fields (all stages) */}
       <div className="bg-white rounded-lg shadow-md p-6 space-y-5">
         <h3 className="text-lg font-semibold text-gray-800">Global (applies to all stages)</h3>
 
@@ -259,42 +304,6 @@ export default function PromptEditor({
             onChange={(v) => onFeedbackChange({ ...feedback, instruction: v })}
             rows={6}
           />
-
-          {/* Feedback display: part toggles + collective/tabs (§6.2, L238) */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Feedback display</label>
-            <p className="text-xs text-gray-500 mb-2">
-              Choose which of the three feedback parts learners see, and whether they appear as one
-              message or as separate tabs.
-            </p>
-            <div className="flex flex-wrap gap-4">
-              {FEEDBACK_PART_KEYS.map((k) => (
-                <label key={k} className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={feedback.parts[k]}
-                    onChange={(e) => onFeedbackChange({ ...feedback, parts: { ...feedback.parts, [k]: e.target.checked } })}
-                    className="h-4 w-4 accent-purple-600"
-                  />
-                  {FEEDBACK_PART_LABELS[k]}
-                </label>
-              ))}
-            </div>
-            <div className="mt-3 flex gap-4">
-              {(['collective', 'tabs'] as const).map((m) => (
-                <label key={m} className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="radio"
-                    name="feedback-display-mode"
-                    checked={feedback.displayMode === m}
-                    onChange={() => onFeedbackChange({ ...feedback, displayMode: m })}
-                    className="h-4 w-4 accent-purple-600"
-                  />
-                  {m === 'collective' ? 'One message' : 'Separate tabs'}
-                </label>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="space-y-4 pt-2 border-t border-gray-100">
