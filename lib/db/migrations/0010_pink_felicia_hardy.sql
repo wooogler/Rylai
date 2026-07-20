@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `closing_markdown` text;

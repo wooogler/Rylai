@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } from "react";
-import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RotateCw, Settings, Eye, Check, Lock, Info, DoorOpen } from "lucide-react";
+import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RotateCw, Settings, Eye, Check, Lock, Info, DoorOpen, Flag } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
@@ -686,11 +686,21 @@ export default function ChatPage() {
     }
   };
 
-  // End the conversation via the final-scenario "End Chat" action (§6, L171).
-  const endChat = () => {
+  // Finish the whole module from the last scenario: record completion, then show the
+  // educator's closing screen (a calm, non-destructive ending — not a "Reset" nudge).
+  // §6, L171. Used by the footer "Finish" button and the congrats modal's "End Chat".
+  const handleFinish = async () => {
+    const sc = scenarios[currentScenario];
+    // A gated last scenario still requires the target before finishing; the assessment is
+    // ungated, so this check passes straight through.
+    if (sc?.masteryEnabled && userType === 'user' && !sc.assessmentMode && !computeMasteryMet(sc)) {
+      return;
+    }
     setShowCongrats(false);
-    setEndedReason('completed');
-    if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
+    if (sc && userType === 'user') {
+      await recordScenarioLifecycle(sc.id, 'completed');
+    }
+    router.push('/complete');
   };
 
   // Voluntary safe exit, available at any time (§6, L216). Ends the conversation
@@ -1114,7 +1124,9 @@ export default function ChatPage() {
                 <div className="flex items-center justify-center gap-2 py-2 text-center text-sm text-gray-600">
                   <Check className="h-4 w-4 flex-shrink-0 text-emerald-600" />
                   {endedReason === 'completed'
-                    ? "You've ended this conversation — nice work! Use Reset to start over."
+                    ? (isLastScenario
+                        ? "Nice work — you've reached the end. Select Finish below to wrap up."
+                        : "Nice work — you've completed this conversation. Select Next to continue.")
                     : "You've ended this conversation. It's okay to step away anytime."}
                 </div>
               ) : (
@@ -1273,16 +1285,25 @@ export default function ChatPage() {
             </div>
             <div className="relative group">
               <Button
-                onClick={handleNextScenario}
-                disabled={currentScenario === scenarios.length - 1 || masteryLocked}
+                onClick={isLastScenario ? handleFinish : handleNextScenario}
+                disabled={masteryLocked}
                 variant="primary"
                 size="small"
                 className={showLockTip ? 'pointer-events-none' : undefined}
               >
                 <span className="flex items-center">
                   {showLockTip && <Lock className="w-4 h-4 mr-1.5" />}
-                  Next
-                  <ChevronRight className="w-5 h-5 ml-1" />
+                  {isLastScenario ? (
+                    <>
+                      Finish
+                      <Flag className="w-4 h-4 ml-1.5" />
+                    </>
+                  ) : (
+                    <>
+                      Next
+                      <ChevronRight className="w-5 h-5 ml-1" />
+                    </>
+                  )}
                 </span>
               </Button>
               {showLockTip && (
@@ -1332,7 +1353,7 @@ export default function ChatPage() {
             isLast={isLastScenario}
             onContinue={() => setShowCongrats(false)}
             onNext={handleNextScenario}
-            onEnd={endChat}
+            onEnd={handleFinish}
           />
         )}
     </div>

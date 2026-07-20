@@ -16,7 +16,7 @@ import PromptEditor, {
 import PromptPreview from "./PromptPreview";
 import AccessCodes from "./AccessCodes";
 import Markdown from "@/components/Markdown";
-import { DEFAULT_WELCOME_MARKDOWN } from "@/lib/welcome-content";
+import { DEFAULT_WELCOME_MARKDOWN, DEFAULT_CLOSING_MARKDOWN } from "@/lib/welcome-content";
 
 function generateSlug(name: string): string {
   return name
@@ -53,6 +53,7 @@ export default function AdminPage() {
     feedbackConfig,
     classificationConfig,
     welcomeMarkdown,
+    closingMarkdown,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -65,6 +66,7 @@ export default function AdminPage() {
     setAge,
     saveAdminPrompts,
     saveWelcomeMarkdown,
+    saveClosingMarkdown,
     deleteAccount
   } = useScenarioStore();
 
@@ -82,6 +84,8 @@ export default function AdminPage() {
   );
   const [editWelcome, setEditWelcome] = useState<string>('');
   const [showWelcomePreview, setShowWelcomePreview] = useState(false);
+  const [editClosing, setEditClosing] = useState<string>('');
+  const [showClosingPreview, setShowClosingPreview] = useState(false);
   const [splashPreview, setSplashPreview] = useState<Record<number, boolean>>({});
   // Auto-save status shown where the old "Save Changes" button was.
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
@@ -100,8 +104,8 @@ export default function AdminPage() {
   const savingRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initedRef = useRef(false);
-  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome });
-  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome };
+  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing });
+  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing };
 
   // Backfill newer per-scenario fields so older persisted/imported scenarios keep every input
   // controlled (no undefined -> defined warning). Shared by the sync effect and Add.
@@ -141,6 +145,7 @@ export default function AdminPage() {
         fromClassificationEdit(snap.editClassification)
       );
       await saveWelcomeMarkdown(snap.editWelcome);
+      await saveClosingMarkdown(snap.editClosing);
 
       const storeIds = new Set(useScenarioStore.getState().scenarios.map((s) => s.id));
       for (const scenario of snap.editingScenarios) {
@@ -184,6 +189,7 @@ export default function AdminPage() {
     setEditFeedback(toFeedbackEdit(st.feedbackConfig));
     setEditClassification(toClassificationEdit(st.classificationConfig));
     setEditWelcome(st.welcomeMarkdown ?? '');
+    setEditClosing(st.closingMarkdown ?? '');
     initedRef.current = true;
   };
 
@@ -196,7 +202,7 @@ export default function AdminPage() {
     if (dirtyRef.current || savingRef.current) return;
     hydrateBuffersFromStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown]);
+  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown]);
 
   // Warn before leaving with an unsaved/in-flight edit (auto-save is debounced, so a fast
   // tab-close could otherwise drop the last change).
@@ -380,6 +386,7 @@ export default function AdminPage() {
       feedbackConfig?: ReturnType<typeof fromFeedbackEdit>;
       classificationConfig?: ReturnType<typeof fromClassificationEdit>;
       welcome?: string;
+      closing?: string;
     }
   ) => {
     if (saveTimerRef.current) {
@@ -399,6 +406,7 @@ export default function AdminPage() {
         );
       }
       if (globals.welcome !== undefined) await saveWelcomeMarkdown(globals.welcome);
+      if (globals.closing !== undefined) await saveClosingMarkdown(globals.closing);
 
       // Reconcile scenarios: update where the file's id matches an existing one (preserving
       // its learner data), add the rest, delete store scenarios absent from the file.
@@ -440,6 +448,7 @@ export default function AdminPage() {
       feedbackConfig: fromFeedbackEdit(editFeedback),
       classificationConfig: fromClassificationEdit(editClassification),
       welcomeMarkdown: editWelcome,
+      closingMarkdown: editClosing,
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -496,6 +505,7 @@ export default function AdminPage() {
           feedbackConfig?: ReturnType<typeof fromFeedbackEdit>;
           classificationConfig?: ReturnType<typeof fromClassificationEdit>;
           welcome?: string;
+          closing?: string;
         } = {};
         if (!Array.isArray(imported)) {
           if ('age' in imported) {
@@ -509,6 +519,9 @@ export default function AdminPage() {
           }
           if ('welcomeMarkdown' in imported) {
             globals.welcome = typeof imported.welcomeMarkdown === 'string' ? imported.welcomeMarkdown : '';
+          }
+          if ('closingMarkdown' in imported) {
+            globals.closing = typeof imported.closingMarkdown === 'string' ? imported.closingMarkdown : '';
           }
         }
 
@@ -781,6 +794,50 @@ export default function AdminPage() {
                 onChange={(e) => { setEditWelcome(e.target.value); scheduleSave(); }}
                 rows={10}
                 placeholder="Welcome content (Markdown)…"
+                className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+            )}
+          </div>
+
+          {/* Closing screen (educator-wide, shown when the learner finishes the last scenario) */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <div>
+                <h3 className="text-xl font-semibold">Closing screen</h3>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Shown to learners when they select <span className="font-medium">Finish</span> on the last scenario (Markdown). Leave empty to use the built-in default.
+                </p>
+              </div>
+              <div className="flex items-center gap-3 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowClosingPreview((v) => !v)}
+                  className="text-sm font-medium text-purple-600 hover:text-purple-800"
+                >
+                  {showClosingPreview ? 'Edit' : 'Preview'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setEditClosing(DEFAULT_CLOSING_MARKDOWN); scheduleSave(); }}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                  title="Reset to the default closing content"
+                >
+                  Reset to default
+                </button>
+              </div>
+            </div>
+            {showClosingPreview ? (
+              <div className="mt-3 min-h-[8rem] rounded-lg border border-gray-200 bg-gray-50 p-4">
+                {editClosing.trim()
+                  ? <Markdown>{editClosing}</Markdown>
+                  : <Markdown>{DEFAULT_CLOSING_MARKDOWN}</Markdown>}
+              </div>
+            ) : (
+              <textarea
+                value={editClosing}
+                onChange={(e) => { setEditClosing(e.target.value); scheduleSave(); }}
+                rows={10}
+                placeholder="Closing content (Markdown)… leave empty to use the default"
                 className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             )}

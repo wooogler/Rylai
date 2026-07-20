@@ -15,3 +15,16 @@ You'll complete **two scenarios**:
 The goal in each scenario is to engage safely with the other person while protecting yourself from unwanted interactions.
 
 > **Note:** If either scenario makes you feel uncomfortable or unsafe and you'd like to stop, you can do so at any time without penalty.`;
+
+// Default Closing-screen content, shown when a learner finishes the last scenario (the
+// "Finish" action). Educators can override it in the admin editor; an empty value falls back
+// to this default so learners always get a clear ending. Rendered as Markdown.
+export const DEFAULT_CLOSING_MARKDOWN = `## You're all done 🎉
+
+Nice work — you've completed the RYLAI experience.
+
+Along the way you practiced noticing the tactics someone might use online and responding in ways that keep you safe. Those same instincts — pausing when something feels off, protecting your personal information, and stepping away when you're uncomfortable — carry over to real conversations.
+
+> **Remember:** If anything online ever makes you feel unsafe, you can stop, and you can talk to an adult you trust.
+
+Thanks for taking part.`;

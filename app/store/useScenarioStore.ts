@@ -229,6 +229,7 @@ export interface AuthUser {
   feedbackConfig?: FeedbackConfig | null;
   classificationConfig?: ClassificationConfig | null;
   welcomeMarkdown?: string | null;
+  closingMarkdown?: string | null;
 }
 
 interface VtSessionState {
@@ -252,6 +253,8 @@ interface ScenarioStore {
   classificationConfig: ClassificationConfig | null;
   // Admin's own Welcome-screen markdown (null = none). Loaded from /api/auth/me.
   welcomeMarkdown: string | null;
+  // Admin's own Closing-screen markdown (null = use the built-in default). Loaded from /api/auth/me.
+  closingMarkdown: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -272,6 +275,7 @@ interface ScenarioStore {
     classificationConfig: ClassificationConfig | null
   ) => Promise<void>;
   saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
+  saveClosingMarkdown: (closingMarkdown: string | null) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<Scenario | null>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -313,6 +317,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       feedbackConfig: null,
       classificationConfig: null,
       welcomeMarkdown: null,
+      closingMarkdown: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -337,6 +342,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 feedbackConfig: user.feedbackConfig ?? null,
                 classificationConfig: user.classificationConfig ?? null,
                 welcomeMarkdown: user.welcomeMarkdown ?? null,
+                closingMarkdown: user.closingMarkdown ?? null,
               }
             : {}),
         });
@@ -457,6 +463,24 @@ export const useScenarioStore = create<ScenarioStore>()(
           });
         } catch (error) {
           console.error('Error updating welcome content:', error);
+        }
+      },
+
+      // Persist the educator's Closing-screen markdown (empty string = use the built-in default).
+      saveClosingMarkdown: async (closingMarkdown) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        set({ closingMarkdown });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, closingMarkdown }),
+          });
+        } catch (error) {
+          console.error('Error updating closing content:', error);
         }
       },
 

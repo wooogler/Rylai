@@ -68,6 +68,9 @@ export const users = sqliteTable(
     // this educator and before the first scenario. Null = skip the welcome screen.
     // (Evaluation Plan §6, L105–121 / L183.)
     welcomeMarkdown: text('welcome_markdown'),
+    // Educator-authored Closing-screen content (Markdown), shown when the learner finishes the
+    // last scenario (the "Finish" action). Null = use the built-in default closing message.
+    closingMarkdown: text('closing_markdown'),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

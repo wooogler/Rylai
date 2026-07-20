@@ -22,6 +22,7 @@ export async function GET() {
         feedbackConfig: true,
         classificationConfig: true,
         welcomeMarkdown: true,
+        closingMarkdown: true,
       },
     });
 
