@@ -13,6 +13,13 @@ export const FEEDBACK_PART_LABELS: Record<FeedbackPartKey, string> = {
   nextMove: 'How to Respond Next',
 };
 
+// Short labels for the tabbed display, where the full labels wrap in the narrow comment card.
+export const FEEDBACK_TAB_LABELS: Record<FeedbackPartKey, string> = {
+  yourResponse: 'Your reply',
+  stageIntent: 'Their tactic',
+  nextMove: 'Next step',
+};
+
 export type FeedbackDisplayMode = 'collective' | 'tabs';
 
 export interface FeedbackParts {

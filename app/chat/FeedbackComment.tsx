@@ -4,7 +4,7 @@ import { useState, type ComponentProps } from "react";
 import Avatar from "./Avatar";
 import ReactMarkdown from "react-markdown";
 import { CLASSIFICATION_META, RESPONSE_TYPE_META, type ResponseLabel, type ResponseType } from "../store/useScenarioStore";
-import { parseFeedback, feedbackSummary } from "@/lib/feedback-format";
+import { parseFeedback, feedbackSummary, FEEDBACK_TAB_LABELS, type FeedbackPartKey } from "@/lib/feedback-format";
 
 interface FeedbackCommentProps {
   name: string;
@@ -41,16 +41,17 @@ function Body({ text }: { text: string }) {
     const active = parsed.parts[Math.min(tab, parsed.parts.length - 1)];
     return (
       <div>
-        <div className="flex flex-wrap gap-1 mb-2">
+        {/* Single-line segmented control (short labels so it never wraps in the narrow card) */}
+        <div className="mb-2.5 flex rounded-lg bg-gray-100 p-0.5 text-[11px] font-medium">
           {parsed.parts.map((p, i) => (
             <button
               key={p.key}
               onClick={(e) => { e.stopPropagation(); setTab(i); }}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium transition-colors ${
-                i === tab ? "bg-purple-100 text-purple-700" : "bg-gray-100 text-gray-500 hover:bg-gray-200"
+              className={`flex-1 whitespace-nowrap rounded-md px-1.5 py-1 transition-colors ${
+                i === tab ? "bg-white text-purple-700 shadow-sm" : "text-gray-500 hover:text-gray-700"
               }`}
             >
-              {p.label}
+              {FEEDBACK_TAB_LABELS[p.key as FeedbackPartKey] ?? p.label}
             </button>
           ))}
         </div>
