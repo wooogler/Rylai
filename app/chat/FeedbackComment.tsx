@@ -142,7 +142,10 @@ export default function FeedbackComment({
           <span className="text-xs ml-1.5">Writing feedback...</span>
         </div>
       ) : expanded ? (
-        <div className="mt-2 text-xs text-gray-800 leading-relaxed max-h-60 overflow-y-auto">
+        // Show the whole feedback (incl. "How to Respond Next") without an inner scroll; the
+        // gutter keeps the focused card on-screen (recomputeCommentPositions). The generous
+        // viewport cap only engages on very short screens, to scroll instead of hard-clip.
+        <div className="mt-2 text-xs text-gray-800 leading-relaxed max-h-[70vh] overflow-y-auto">
           <Body text={text} />
         </div>
       ) : (
