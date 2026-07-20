@@ -937,8 +937,9 @@ export default function ChatPage() {
       {/* Chat card + comment gutter OUTSIDE the card (Google Docs style) */}
       <main className="min-h-0 flex-1 px-6 py-4">
         <div className="mx-auto flex h-full w-full max-w-4xl items-stretch gap-3">
-          {/* Chat card */}
-          <div className="bg-white rounded-lg shadow flex-1 min-w-0 h-full flex flex-col">
+          {/* Chat card. In assessment mode there's no gutter, so center it at a comfortable
+              width instead of stretching across the full container. */}
+          <div className={`bg-white rounded-lg shadow h-full flex flex-col ${isAssessment ? 'mx-auto w-full max-w-2xl' : 'flex-1 min-w-0'}`}>
             {/* Chat Header */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 rounded-t-lg">
               <div className="flex items-center justify-between mb-2">
@@ -1151,8 +1152,10 @@ export default function ChatPage() {
             </div>
           </div>
 
-          {/* Comment gutter — floats outside the chat card, comments track their
-              anchor messages while the chat scrolls */}
+          {/* Comment gutter — floats outside the chat card, comments track their anchor
+              messages while the chat scrolls. Hidden in assessment mode (no feedback), so the
+              chat card centers instead of leaving an empty column to its right. */}
+          {!isAssessment && (
           <div ref={gutterRef} className="hidden md:block w-72 flex-shrink-0 relative overflow-hidden">
             {commentMessages.map((message) => {
               const fb = feedbackByMessageId.get(message.id);
@@ -1203,6 +1206,7 @@ export default function ChatPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </main>
 
