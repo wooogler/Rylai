@@ -144,6 +144,9 @@ export default function ChatPage() {
   const [showSplash, setShowSplash] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  // Bumped on every loadMessages run; a run whose seq is no longer current bails before
+  // seeding/saving, so overlapping runs (e.g. during Restart) can't double-seed presets.
+  const loadSeqRef = useRef(0);
 
   // --- Comment gutter positioning (Google Docs style) ---------------------------
   // Comments live OUTSIDE the chat card and are absolutely positioned to line up
@@ -232,6 +235,8 @@ export default function ChatPage() {
 
   useEffect(() => {
     const sc = scenarios[currentScenario];
+    const seq = ++loadSeqRef.current;
+    const stale = () => loadSeqRef.current !== seq;
 
     // Restore the displayed stage from the most recent online-stranger message.
     const restoreStage = (msgs: Message[]) => {
@@ -273,10 +278,14 @@ export default function ChatPage() {
 
       await recordScenarioVisit(sc.id);
       const progressMap = await loadScenarioProgress();
+      if (stale()) return;
       setScenarioProgressMap(progressMap);
 
       const ownMessages = await loadUserMessages(sc.id);
       const ownFeedbacks = await loadUserFeedbacks(sc.id);
+      // A newer run superseded this one (e.g. Restart reloaded scenarios) — bail before
+      // seeding so we don't write a second copy of the preset messages.
+      if (stale()) return;
 
       if (sc.persistMessages && currentScenario > 0) {
         // Show the previous scenario's conversation for context, then a time-gap separator,
@@ -285,14 +294,17 @@ export default function ChatPage() {
         // seed those presets as this scenario's own messages, tagging the predator's opening
         // at this scenario's starting stage so the header/VT seed reflect the new phase.
         const { msgs: carried, fb: carriedFb } = await buildCarried();
+        if (stale()) return;
         const fbMap = new Map(carriedFb);
         ownFeedbacks.forEach((v, key) => fbMap.set(key, v));
 
         let own = ownMessages;
         if (own.length === 0 && sc.presetMessages.length > 0) {
+          // Stable ids (per scenario + index) make re-seeding idempotent: the messages API
+          // dedupes by messageId, so a repeated save is a no-op instead of a duplicate.
           const seeded = sc.presetMessages.map((msg, index) => ({
             ...msg,
-            id: `${sc.id}-preset-${index}-${Date.now()}-${msg.id}`,
+            id: `${sc.id}-preset-${index}-${msg.id}`,
             stage: msg.sender === 'other' ? sc.stage : undefined,
           }));
           for (const msg of seeded) {
@@ -315,10 +327,11 @@ export default function ChatPage() {
         restoreStage(ownMessages);
       } else {
         setFeedbackByMessageId(new Map());
-        // First time: save preset messages with unique IDs using timestamp
+        // First time: seed preset messages with stable ids (per scenario + index). Stable
+        // (not timestamped) so a repeated seed dedupes by messageId instead of duplicating.
         const presetMessages = sc.presetMessages.map((msg, index) => ({
           ...msg,
-          id: `${sc.id}-preset-${index}-${Date.now()}-${msg.id}` // Make ID unique per scenario with timestamp
+          id: `${sc.id}-preset-${index}-${msg.id}`
         }));
         setMessages(presetMessages);
 
@@ -890,16 +903,22 @@ export default function ChatPage() {
                 Educator&nbsp;<span className="font-semibold text-gray-700">{adminName ?? '—'}</span>
               </span>
             )}
-            <Button
-              onClick={handleResetModule}
-              disabled={isResetting || isRefreshing || isBusy}
-              variant="ghost"
-              size="small"
-              title="Reset the entire module: start the whole scenario set over from the beginning"
-            >
-              <RotateCcw className={`w-4 h-4 mr-2 ${isResetting ? 'animate-spin' : ''}`} />
-              {isResetting ? 'Resetting…' : 'Reset'}
-            </Button>
+            <div className="relative group">
+              <button
+                onClick={handleResetModule}
+                disabled={isResetting || isRefreshing || isBusy}
+                className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm font-medium text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className={`w-4 h-4 ${isResetting ? 'animate-spin' : ''}`} />
+                {isResetting ? 'Resetting…' : 'Reset all'}
+              </button>
+              <div className="absolute top-full right-0 z-50 mt-2 hidden w-64 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
+                <div className="font-semibold mb-1">Reset the whole module</div>
+                Starts <span className="font-semibold">every</span> scenario over from Scenario 1 and
+                clears all of your messages, feedback, and progress. Use <span className="font-semibold">Restart</span> on
+                a scenario to redo just that one.
+              </div>
+            </div>
             <Button
               onClick={async () => {
                 await logout();
@@ -950,9 +969,11 @@ export default function ChatPage() {
                       {isRefreshing ? 'Restarting…' : 'Restart'}
                     </button>
                     <div className="absolute top-full right-0 z-50 mt-2 hidden w-64 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
-                      <div className="font-semibold mb-1">Restart this scenario</div>
-                      Starts this conversation over from the beginning (with your teacher&apos;s latest
-                      version). Your messages and feedback for this scenario will be cleared.
+                      <div className="font-semibold mb-1">Restart this scenario only</div>
+                      Starts <span className="font-semibold">this</span> conversation over from the
+                      beginning (with your teacher&apos;s latest version); its messages and feedback are
+                      cleared. Other scenarios are untouched — use <span className="font-semibold">Reset all</span> for
+                      the whole module.
                     </div>
                   </div>
                 </div>
