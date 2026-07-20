@@ -824,21 +824,15 @@ export default function AdminPage() {
               </div>
 
               {/* Preset Messages */}
-              {scenario.persistMessages ? (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Preset Messages
-                  </label>
-                  <div className="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-3">
-                    Disabled — this scenario continues the previous scenario&apos;s conversation,
-                    so preset messages aren&apos;t used.
-                  </div>
-                </div>
-              ) : (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Preset Messages
                 </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  {scenario.persistMessages && scenarioIndex !== 0
+                    ? "The online stranger re-opens this scenario with these messages, shown after the carried-over conversation and the time-gap separator."
+                    : "Shown at the start of the conversation (usually the online stranger's opening messages)."}
+                </p>
                 <div className="space-y-3">
                   {scenario.presetMessages.map((message, messageIndex) => (
                     <div
@@ -889,7 +883,6 @@ export default function AdminPage() {
                   </button>
                 </div>
               </div>
-              )}
 
               {/* Scenario behavior toggles (bottom, side by side) */}
               <div className="mt-6 pt-4 border-t border-gray-200 grid grid-cols-1 md:grid-cols-2 gap-4">
