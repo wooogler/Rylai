@@ -559,8 +559,11 @@ export default function ChatPage() {
           // 6.1b assessment: no feedback is SHOWN, but classify the reply silently so the
           // Safe Response Rate is recorded for research (the assessment's purpose).
           generateFeedback(conversationWithReply, userReplyIndex, replyStage, true);
-          // End the session once the message limit (counting both sides) is reached (L223–225).
-          if (scenario.maxMessages > 0 && conversationWithReply.length >= scenario.maxMessages) {
+          // End the session once the participant has sent `maxMessages` of their own replies
+          // (L223–225). We count the participant's messages, not both sides — that's the
+          // intuitive "how many responses did they give" measure for an assessment.
+          const participantReplies = conversationWithReply.filter((m) => m.sender === 'user').length;
+          if (scenario.maxMessages > 0 && participantReplies >= scenario.maxMessages) {
             setEndedReason('completed');
             if (userType === 'user') recordScenarioLifecycle(scenario.id, 'completed');
           }

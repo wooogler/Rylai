@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH - Record a lifecycle event for a scenario: 'completed' (finished — advanced to the
-// next scenario, ended the final chat, or the assessment hit its message limit) or
+// next scenario, ended the final chat, or the assessment reached its reply limit) or
 // 'comfort_exit' ("I don't feel comfortable anymore."). Timestamps are sticky (first only).
 export async function PATCH(request: NextRequest) {
   try {

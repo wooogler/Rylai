@@ -130,8 +130,9 @@ export const scenarios = sqliteTable(
     // the chat when the learner first enters this scenario. Null = no splash. L123–137.
     splashMarkdown: text('splash_markdown'),
     // 6.1b assessment-only chatbot: a predator-only mode for the post-training assessment
-    // — no stage UI, no feedback agent, no mastery gate, natural progression, ending after
-    // `maxMessages` messages (0 = no limit). (Evaluation Plan §6.1b, L219–226.)
+    // — no stage UI, no feedback agent, no mastery gate, natural progression, ending once the
+    // participant has sent `maxMessages` of their own replies (0 = no limit). (Evaluation
+    // Plan §6.1b, L219–226.)
     assessmentMode: integer('assessment_mode', { mode: 'boolean' }).notNull().default(false),
     maxMessages: integer('max_messages').notNull().default(0),
     presetMessages: text('preset_messages', { mode: 'json' })

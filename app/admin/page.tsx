@@ -1167,15 +1167,15 @@ export default function AdminPage() {
                     <span className="block text-sm font-medium text-gray-800">Assessment mode (predator only)</span>
                     <span className="block text-xs text-gray-500">
                       For the post-training assessment: the online stranger progresses naturally with no
-                      stage display, no feedback, and no protective-rate gate. The conversation ends after
-                      the message limit below.
+                      stage display, no feedback, and no protective-rate gate. The conversation ends once
+                      the participant has sent the number of replies set below.
                     </span>
                   </label>
                 </div>
                 {scenario.assessmentMode && (
                   <div className="mt-3 ml-7 flex flex-wrap items-center gap-2">
                     <label htmlFor={`maxmsg-${scenario.id}`} className="text-xs text-gray-600">
-                      End after this many messages
+                      End after this many participant replies
                     </label>
                     <input
                       id={`maxmsg-${scenario.id}`}
@@ -1185,7 +1185,7 @@ export default function AdminPage() {
                       onChange={(e) => handleUpdateScenario(scenarioIndex, 'maxMessages', Math.max(0, parseInt(e.target.value) || 0))}
                       className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
                     />
-                    <span className="text-xs text-gray-400">(0 = no limit; counts both sides)</span>
+                    <span className="text-xs text-gray-400">(0 = no limit; counts the participant&apos;s own replies)</span>
                   </div>
                 )}
               </div>
