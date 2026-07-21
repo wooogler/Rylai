@@ -221,16 +221,32 @@ export interface ProgressUpdate {
   masteryReachedAt: number | null;
 }
 
+// The educator a student is bound to, as returned by /api/auth/{me,login,signup}. This is
+// the single source of a learner's class context — it used to be picked client-side and
+// persisted to local storage, which let a stale binding point at the wrong educator.
+export interface EducatorContext {
+  id: string;
+  username: string;
+  age: number | null;
+  hasWelcome: boolean;
+  openEnrollment: boolean;
+  stageEscalation?: StageEscalationConfig | null;
+}
+
 export interface AuthUser {
   id: string;
   username: string;
   userType: 'admin' | 'user';
+  educatorId?: string | null;
   age?: number | null;
+  openEnrollment?: boolean;
   feedbackConfig?: FeedbackConfig | null;
   classificationConfig?: ClassificationConfig | null;
   welcomeMarkdown?: string | null;
   closingMarkdown?: string | null;
   stageEscalation?: StageEscalationConfig | null;
+  // Present for students only; null for educators.
+  educator?: EducatorContext | null;
 }
 
 interface VtSessionState {
@@ -259,10 +275,15 @@ interface ScenarioStore {
   // Global per-step stage-progression policy (this educator's). For an admin it's their own
   // setting; for a learner it's the picked educator's, loaded via setAdminContext. See schema.ts.
   stageEscalation: StageEscalationConfig | null;
+  // Educator-only: may anyone with the plain class link sign up, or is an access code
+  // required? Loaded for admins from /api/auth/me.
+  openEnrollment: boolean;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
   authHydrated: boolean;
+  // The educator whose class the signed-in learner belongs to. DERIVED from the session
+  // (users.educator_id) via setAuthUser — never chosen client-side, never persisted.
   adminUserId: string | null;
   adminName: string | null;
   vtSessions: Record<number, VtSessionState>;
@@ -271,9 +292,9 @@ interface ScenarioStore {
   splashSeen: Record<number, boolean>;
   setAuthUser: (user: AuthUser) => void;
   hydrateAuth: () => Promise<boolean>;
-  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null, stageEscalation?: StageEscalationConfig | null) => void;
   loadUserScenarios: () => Promise<void>;
   setAge: (age: number | null) => Promise<void>;
+  saveOpenEnrollment: (openEnrollment: boolean) => Promise<void>;
   saveAdminPrompts: (
     feedbackConfig: FeedbackConfig | null,
     classificationConfig: ClassificationConfig | null
@@ -324,6 +345,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       welcomeMarkdown: null,
       closingMarkdown: null,
       stageEscalation: null,
+      openEnrollment: true,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -333,7 +355,9 @@ export const useScenarioStore = create<ScenarioStore>()(
       vtSessions: {},
       splashSeen: {},
 
-      // Populate auth state from a login/signup/me response.
+      // Populate auth state from a login/signup/me response. For a student this also adopts
+      // their bound educator's context (id / name / age / stage policy) straight from the
+      // session payload — nothing about "which class" is client-chosen any more.
       setAuthUser: (user: AuthUser) => {
         set({
           currentUser: user.username,
@@ -345,13 +369,21 @@ export const useScenarioStore = create<ScenarioStore>()(
           ...(user.userType === 'admin'
             ? {
                 age: user.age ?? null,
+                openEnrollment: user.openEnrollment ?? true,
                 feedbackConfig: user.feedbackConfig ?? null,
                 classificationConfig: user.classificationConfig ?? null,
                 welcomeMarkdown: user.welcomeMarkdown ?? null,
                 closingMarkdown: user.closingMarkdown ?? null,
                 stageEscalation: user.stageEscalation ?? null,
+                adminUserId: null,
+                adminName: null,
               }
-            : {}),
+            : {
+                adminUserId: user.educator?.id ?? null,
+                adminName: user.educator?.username ?? null,
+                age: user.educator?.age ?? null,
+                stageEscalation: user.educator?.stageEscalation ?? null,
+              }),
         });
       },
 
@@ -371,6 +403,8 @@ export const useScenarioStore = create<ScenarioStore>()(
             isAuthenticated: false,
             isAdmin: false,
             authHydrated: true,
+            adminUserId: null,
+            adminName: null,
           });
           return false;
         } catch (error) {
@@ -380,35 +414,18 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
-      // Learner picks an educator: adopt that educator's global age setting + name.
-      setAdminContext: (adminUserId, age, adminName, stageEscalation) => {
-        // stageEscalation is the picked educator's per-step stage policy, needed by the chat
-        // governor. Keep the existing value when a caller doesn't provide it (only the chat
-        // page's reloadEducatorData fetches it authoritatively).
-        set((s) => ({
-          adminUserId,
-          age: age ?? null,
-          adminName: adminName ?? null,
-          stageEscalation: stageEscalation !== undefined ? stageEscalation : s.stageEscalation,
-        }));
-      },
-
+      // Loads the scenarios that apply to the signed-in user: an educator's own, or — for a
+      // student — their bound educator's. The server resolves the owner from the session, so
+      // no educator id is sent (and none can be spoofed).
       loadUserScenarios: async () => {
-        const { userId, userType, adminUserId } = get();
+        const { userId } = get();
         if (!userId) return;
 
         try {
-          const targetUserId = userType === 'user' ? adminUserId : userId;
-
-          if (!targetUserId) {
-            console.error('No target user ID for loading scenarios');
-            return;
-          }
-
           const response = await fetch('/api/get-admin-scenarios', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ adminUserId: targetUserId }),
+            body: JSON.stringify({}),
           });
 
           if (!response.ok) {
@@ -427,6 +444,8 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      // The five save* actions below PATCH the signed-in educator's own row. The server takes
+      // the target from the session cookie, so no user id is sent.
       setAge: async (age: number | null) => {
         const { userId } = get();
         if (!userId) return;
@@ -437,10 +456,29 @@ export const useScenarioStore = create<ScenarioStore>()(
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, age }),
+            body: JSON.stringify({ age }),
           });
         } catch (error) {
           console.error('Error updating age:', error);
+        }
+      },
+
+      // Educator: allow anyone holding the plain class link to sign up (true), or require an
+      // unused access code (false).
+      saveOpenEnrollment: async (openEnrollment: boolean) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        set({ openEnrollment });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ openEnrollment }),
+          });
+        } catch (error) {
+          console.error('Error updating enrollment setting:', error);
         }
       },
 
@@ -456,7 +494,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, feedbackConfig, classificationConfig }),
+            body: JSON.stringify({ feedbackConfig, classificationConfig }),
           });
         } catch (error) {
           console.error('Error updating prompts:', error);
@@ -474,7 +512,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, welcomeMarkdown }),
+            body: JSON.stringify({ welcomeMarkdown }),
           });
         } catch (error) {
           console.error('Error updating welcome content:', error);
@@ -492,7 +530,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, closingMarkdown }),
+            body: JSON.stringify({ closingMarkdown }),
           });
         } catch (error) {
           console.error('Error updating closing content:', error);
@@ -510,7 +548,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, stageEscalation }),
+            body: JSON.stringify({ stageEscalation }),
           });
         } catch (error) {
           console.error('Error updating stage-progression setting:', error);
@@ -878,6 +916,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           isAdmin: false,
           adminUserId: null,
           adminName: null,
+          stageEscalation: null,
           vtSessions: {},
         });
       },
@@ -889,11 +928,8 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
 
         try {
-          const response = await fetch('/api/delete-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId }),
-          });
+          // The server deletes the session user; no id is sent.
+          const response = await fetch('/api/delete-user', { method: 'POST' });
 
           if (!response.ok) {
             throw new Error('Failed to delete account');
@@ -908,17 +944,34 @@ export const useScenarioStore = create<ScenarioStore>()(
     }),
     {
       name: 'rylai-store',
-      version: 4,
-      // Auth (userId/userType/isAuthenticated) is intentionally NOT persisted —
-      // it is hydrated from the httpOnly session cookie via hydrateAuth().
+      version: 5,
+      // Auth (userId/userType/isAuthenticated) is intentionally NOT persisted — it is
+      // hydrated from the httpOnly session cookie via hydrateAuth(). As of v5 the same is
+      // true of the learner's class binding (adminUserId / adminName / age): it comes from
+      // users.educator_id in the session payload.
       partialize: (state) => ({
-        adminUserId: state.adminUserId,
-        adminName: state.adminName,
         scenarios: state.scenarios,
-        age: state.age,
         vtSessions: state.vtSessions,
         splashSeen: state.splashSeen,
       }),
+      // Dropping a key from partialize is not enough to forget it: zustand shallow-merges
+      // whatever is already in local storage, so an old snapshot would keep re-injecting a
+      // stale adminUserId over the session-derived one. The version bump + this migrate are
+      // what actually strip it, while keeping the two caches that are expensive to lose —
+      // vtSessions (losing it forces a stage reset on the next turn) and splashSeen.
+      migrate: (persisted, version) => {
+        if (version >= 5) return persisted as never;
+        const old = (persisted ?? {}) as {
+          scenarios?: Scenario[];
+          vtSessions?: Record<number, VtSessionState>;
+          splashSeen?: Record<number, boolean>;
+        };
+        return {
+          scenarios: old.scenarios ?? [],
+          vtSessions: old.vtSessions ?? {},
+          splashSeen: old.splashSeen ?? {},
+        } as never;
+      },
     }
   )
 );

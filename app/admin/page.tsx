@@ -780,10 +780,10 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* Access Codes tab */}
+        {/* Distribution tab: class link, student roster, access codes */}
         {activeTab === 'access' && userId && (
           <div className="mb-8">
-            <AccessCodes educatorId={userId} educatorUsername={currentUser ?? ''} />
+            <AccessCodes educatorUsername={currentUser ?? ''} />
           </div>
         )}
 

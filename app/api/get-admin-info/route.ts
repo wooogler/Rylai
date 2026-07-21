@@ -1,32 +1,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { users, type FeedbackConfig, type ClassificationConfig, type StageEscalationConfig } from '@/lib/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
+import { getSessionUserId } from '@/lib/auth/session';
+import { resolveEducatorIdForUser } from '@/lib/auth/educator';
 
-export async function POST(req: NextRequest) {
+// POST — the acting user's educator settings (welcome/closing content, age, stage policy):
+// an educator's own row, or, for a student, the class they are bound to. Resolved from the
+// session; an `adminId` in the body is ignored, since naming an arbitrary educator used to
+// expose any other class's configuration.
+export async function POST() {
   try {
-    const { adminId } = await req.json();
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    }
 
-    if (!adminId) {
-      return NextResponse.json(
-        { error: 'adminId is required' },
-        { status: 400 }
-      );
+    const educatorId = await resolveEducatorIdForUser(sessionUserId);
+    if (!educatorId) {
+      return NextResponse.json({ error: 'No class is associated with this account' }, { status: 403 });
     }
 
     const adminUser = await db.query.users.findFirst({
-      where: and(
-        eq(users.id, adminId),
-        eq(users.userType, 'admin')
-      ),
+      where: and(eq(users.id, educatorId), eq(users.userType, 'admin')),
       columns: {
         id: true,
         username: true,
         age: true,
         welcomeMarkdown: true,
         closingMarkdown: true,
-        stageEscalation: true
-      }
+        stageEscalation: true,
+        openEnrollment: true,
+      },
     });
 
     if (!adminUser) {
@@ -54,23 +59,32 @@ function sanitizeConfig<T>(value: unknown): T | null | undefined {
   return undefined; // anything else → ignore
 }
 
-// PATCH - Update the educator's global settings: `age` and the feedback /
-// classification prompt overrides. Only the fields present in the body are changed.
+// PATCH - Update the signed-in educator's own global settings: `age`, enrollment policy, and
+// the feedback / classification prompt overrides. Only the fields present in the body are
+// changed. The target row is always the session user (never a body-supplied id), and must be
+// an educator — students have no settings of their own to write.
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation } = await req.json();
-
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'User ID is required' },
-        { status: 400 }
-      );
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
     }
+
+    const educator = await db.query.users.findFirst({
+      where: and(eq(users.id, sessionUserId), eq(users.userType, 'admin'), isNull(users.educatorId)),
+      columns: { id: true },
+    });
+    if (!educator) {
+      return NextResponse.json({ error: 'Educator account required' }, { status: 403 });
+    }
+
+    const { age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation, openEnrollment } = await req.json();
 
     const updates: Partial<typeof users.$inferInsert> = {};
     if (age !== undefined) updates.age = age;
     if (welcomeMarkdown !== undefined) updates.welcomeMarkdown = welcomeMarkdown;
     if (closingMarkdown !== undefined) updates.closingMarkdown = closingMarkdown;
+    if (typeof openEnrollment === 'boolean') updates.openEnrollment = openEnrollment;
     const se = sanitizeConfig<StageEscalationConfig>(stageEscalation);
     if (se !== undefined) updates.stageEscalation = se;
 
@@ -82,7 +96,7 @@ export async function PATCH(req: NextRequest) {
     if (Object.keys(updates).length > 0) {
       await db.update(users)
         .set(updates)
-        .where(eq(users.id, userId));
+        .where(eq(users.id, educator.id));
     }
 
     return NextResponse.json({ success: true });

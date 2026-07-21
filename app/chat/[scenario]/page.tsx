@@ -19,6 +19,11 @@ interface PreviewFeedback {
   responseType?: ResponseType;
 }
 
+// Learners never see which educator's class they are in: every class shows the same generic
+// byline on feedback instead of the educator's username. Educators previewing their own
+// scenarios see it too, so the preview matches what their students get.
+const INSTRUCTOR_LABEL = "Instructor";
+
 // The Safe Response Rate denominator floor for a scenario. Gated scenarios use the mastery
 // gate's minResponses; an ungated assessment uses its own length (maxMessages participant
 // replies) so a short assessment doesn't read as a tiny fraction of 20. Mirrors the
@@ -102,8 +107,7 @@ export default function ChatPage() {
     userId,
     adminUserId,
     adminName,
-    currentUser,
-    setAdminContext,
+    hydrateAuth,
     loadUserScenarios,
     saveUserMessage,
     saveUserFeedback,
@@ -121,12 +125,13 @@ export default function ChatPage() {
     logout
   } = useScenarioStore();
 
-  // Redirect home only once auth state is known (cookie hydration is async).
+  // Redirect home only once auth state is known (cookie hydration is async). A learner's
+  // login page is their class link, not the educator-only root.
   useEffect(() => {
     if (authHydrated && !isAuthenticated) {
-      router.push('/');
+      router.push(adminName ? `/${encodeURIComponent(adminName)}` : '/');
     }
-  }, [authHydrated, isAuthenticated, router]);
+  }, [authHydrated, isAuthenticated, adminName, router]);
 
   // Sync the educator's latest settings (scenario config, age, name) once auth is known.
   // The persisted store restores a snapshot on browser refresh, so without this the chat
@@ -180,9 +185,10 @@ export default function ChatPage() {
   const scenario = scenarios[currentScenario];
   const isBusy = isTyping || pendingFeedbackId !== null || previewPending;
 
-  // The feedback "author" shown on comment cards: the educator whose scenarios
-  // are being practiced (or the educator themselves when testing).
-  const teacherName = (isAdmin ? currentUser : adminName) || 'Teacher';
+  // The feedback "author" shown on comment cards. Deliberately anonymous — see
+  // INSTRUCTOR_LABEL. The avatar seed stays per-class so the face is stable within a class,
+  // but it is an opaque id, not a name.
+  const teacherName = INSTRUCTOR_LABEL;
   const teacherSeed = (isAdmin ? userId : adminUserId) || 'rylai-teacher';
 
   // Recompute comment card positions: align each card with its anchor message
@@ -391,7 +397,6 @@ export default function ChatPage() {
           conversationHistory: conversation,
           stage,
           age,
-          adminUserId: userType === 'admin' ? userId : adminUserId,
         }),
       });
 
@@ -647,7 +652,6 @@ export default function ChatPage() {
           conversationHistory: conversationWithPreview,
           stage: previewStage,
           age,
-          adminUserId: userType === 'admin' ? userId : adminUserId,
         }),
       });
 
@@ -784,24 +788,12 @@ export default function ChatPage() {
     }
   };
 
-  // Pull the educator's latest scenarios + global settings (e.g. age group) from the
-  // DB into the store, so changes they saved on the admin page show up here without
-  // leaving and re-picking the teacher.
+  // Pull the educator's latest scenarios + global settings (e.g. age group) into the store,
+  // so changes they saved on the admin page show up here without a re-login. For a learner
+  // the educator context rides along on the session payload, so re-hydrating auth is enough.
   const reloadEducatorData = async () => {
-    if (userType === 'user' && adminUserId) {
-      try {
-        const res = await fetch('/api/get-admin-info', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ adminId: adminUserId }),
-        });
-        if (res.ok) {
-          const { adminUser } = await res.json();
-          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null, adminUser.stageEscalation ?? null);
-        }
-      } catch (error) {
-        console.error('Failed to reload educator settings:', error);
-      }
+    if (userType === 'user') {
+      await hydrateAuth();
     }
     await loadUserScenarios();
   };
@@ -948,7 +940,9 @@ export default function ChatPage() {
     <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
       {/* Top bar */}
       <header className="flex-shrink-0 border-b border-gray-200 bg-white px-6 py-3">
-        <div className="mx-auto flex w-full max-w-4xl items-center justify-between gap-4">
+        {/* Full-bleed: the title/actions hug the viewport edges instead of the max-w-4xl
+            content column, so long scenario names have room before truncating. */}
+        <div className="flex w-full items-center justify-between gap-4">
           <h1 className="min-w-0 truncate text-lg font-bold text-gray-900" title={scenario.description}>
             {scenario.name}
           </h1>
@@ -962,9 +956,10 @@ export default function ChatPage() {
                 Settings
               </Link>
             ) : (
-              /* Learners are bound to one educator (dedicated-URL flow) — show who, no picker. */
+              /* Learners are bound to one educator (dedicated-URL flow) — no picker, and no
+                 name either: the badge is the same in every class. */
               <span className="hidden items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 sm:inline-flex">
-                Educator&nbsp;<span className="font-semibold text-gray-700">{adminName ?? '—'}</span>
+                <span className="font-semibold text-gray-700">{INSTRUCTOR_LABEL}</span>
               </span>
             )}
             <div className="relative group">
@@ -985,8 +980,9 @@ export default function ChatPage() {
             </div>
             <Button
               onClick={async () => {
+                const classPath = adminName ? `/${encodeURIComponent(adminName)}` : "/";
                 await logout();
-                router.push("/");
+                router.push(isAdmin ? "/" : classPath);
               }}
               variant="ghost"
               size="small"

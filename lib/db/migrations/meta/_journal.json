@@ -99,6 +99,13 @@
       "when": 1784630999790,
       "tag": "0013_early_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1784662761240,
+      "tag": "0014_educator_scoping",
+      "breakpoints": true
     }
   ]
 }

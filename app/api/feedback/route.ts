@@ -6,6 +6,8 @@ import { packFeedback } from '@/lib/feedback-format';
 import { db } from '@/lib/db/client';
 import { users } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { getSessionUserId } from '@/lib/auth/session';
+import { resolveEducatorIdForUser } from '@/lib/auth/educator';
 
 interface ConversationMessage {
   sender: 'user' | 'other';
@@ -14,7 +16,7 @@ interface ConversationMessage {
 
 export async function POST(req: NextRequest) {
   try {
-    const { conversationHistory, stage, adminUserId } = await req.json();
+    const { conversationHistory, stage } = await req.json();
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
@@ -22,13 +24,15 @@ export async function POST(req: NextRequest) {
     }
     const openai = new OpenAI({ apiKey });
 
-    // Per-educator prompt overrides (owner of the scenario being practiced). Falls
-    // back to system defaults when the educator hasn't customized anything.
+    // Per-educator prompt overrides (owner of the scenario being practiced), resolved from
+    // the session rather than a client-named id. Falls back to system defaults when the
+    // educator hasn't customized anything.
+    const educatorId = await resolveEducatorIdForUser(await getSessionUserId());
     let feedbackConfig = null;
     let classificationConfig = null;
-    if (adminUserId) {
+    if (educatorId) {
       const owner = await db.query.users.findFirst({
-        where: eq(users.id, adminUserId),
+        where: eq(users.id, educatorId),
         columns: { feedbackConfig: true, classificationConfig: true },
       });
       feedbackConfig = owner?.feedbackConfig ?? null;

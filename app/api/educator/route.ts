@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db/client';
-import { users } from '@/lib/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { findEducatorByUsername, toEducatorContext } from '@/lib/auth/educator';
 
-// Resolve an educator by username for the dedicated educator URL (Evaluation Plan §6,
-// L96–97). Public: a learner may hit this before signing in. Returns only the fields the
-// dedicated-URL flow needs (never password data).
+// Resolve an educator by username for their distribution link `/<educatorUsername>`.
+// Deliberately public: this is what renders the student login / sign-up page before any
+// account exists. It returns only what that page needs — never password data, and never
+// anything about the educator's students.
 export async function GET(request: NextRequest) {
   try {
     const username = new URL(request.url).searchParams.get('username');
@@ -13,23 +12,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'username is required' }, { status: 400 });
     }
 
-    const educator = await db.query.users.findFirst({
-      where: and(eq(users.username, username), eq(users.userType, 'admin')),
-      columns: { id: true, username: true, age: true, welcomeMarkdown: true },
-    });
-
+    const educator = await findEducatorByUsername(username.trim());
     if (!educator) {
       return NextResponse.json({ educator: null }, { status: 404 });
     }
 
-    return NextResponse.json({
-      educator: {
-        id: educator.id,
-        username: educator.username,
-        age: educator.age ?? null,
-        hasWelcome: !!(educator.welcomeMarkdown && educator.welcomeMarkdown.trim()),
-      },
-    });
+    const { id, username: name, age, hasWelcome, openEnrollment } = toEducatorContext(educator);
+    // `stageEscalation` is intentionally omitted here — that is class configuration, handed
+    // out only to authenticated members via /api/auth/me.
+    return NextResponse.json({ educator: { id, username: name, age, hasWelcome, openEnrollment } });
   } catch (error) {
     console.error('Error resolving educator:', error);
     return NextResponse.json({ error: 'Failed to resolve educator' }, { status: 500 });

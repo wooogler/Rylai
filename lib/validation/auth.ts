@@ -6,19 +6,39 @@ export function validatePassword(password: string): { valid: boolean; error?: st
   return { valid: true };
 }
 
-export const signupSchema = z.object({
-  username: z.string().trim().min(2, 'Username must be at least 2 characters').max(40),
-  password: z.string().min(1, 'Please enter a password'),
-  passcode: z.string().optional(),
-  // Participant access code — required for learner signups (gates registration). Educators
-  // use the passcode instead. Validated server-side against the access_codes table.
-  accessCode: z.string().optional(),
+const usernameField = z.string().trim().min(2, 'Username must be at least 2 characters').max(40);
+const passwordField = z.string().min(1, 'Please enter a password');
+
+// Educator sign-up — only from the root page, and only with the educator passcode. There is
+// no passcode-less path any more: a missing passcode used to silently create a learner
+// account, which is exactly what the distribution-link model removes.
+export const educatorSignupSchema = z.object({
+  username: usernameField,
+  password: passwordField,
+  // `error` covers the omitted-field case too, which would otherwise surface Zod's raw
+  // "expected string, received undefined" to an educator who just left the box empty.
+  passcode: z.string({ error: 'The educator passcode is required' }).min(1, 'The educator passcode is required'),
 });
 
+// Student sign-up — only from an educator's distribution link, so `educator` (that educator's
+// username, taken from the URL segment) is mandatory and names the namespace the account is
+// created in. `accessCode` is optional unless the educator turned off open enrollment.
+export const studentSignupSchema = z.object({
+  username: usernameField,
+  password: passwordField,
+  educator: z.string().trim().min(1, 'Missing educator'),
+  accessCode: z.string().trim().optional(),
+});
+
+// Login. `educator` present = a student logging in on `/<educator>`; absent = an educator
+// logging in at the root. The two never resolve to the same account, so the lookup must be
+// scoped by it — usernames are only unique within their own namespace.
 export const loginSchema = z.object({
   username: z.string().trim().min(1, 'Please enter your username'),
-  password: z.string().min(1, 'Please enter a password'),
+  password: passwordField,
+  educator: z.string().trim().optional(),
 });
 
-export type SignupInput = z.infer<typeof signupSchema>;
+export type EducatorSignupInput = z.infer<typeof educatorSignupSchema>;
+export type StudentSignupInput = z.infer<typeof studentSignupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;

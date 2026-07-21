@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer, real, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, real, index, uniqueIndex, type AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 // Per-educator overrides for the feedback / classification prompts. Every field is
 // optional: a missing (or empty) value falls back to the hardcoded system default
@@ -55,8 +56,16 @@ export interface StageEscalationStep {
 export type StageEscalationConfig = Record<string, StageEscalationStep>;
 
 // Users table — username + password authentication (no email; nothing is emailed).
-// `username` is the login id and the name shown to learners when picking an educator.
-// userType: 'admin' (educator) creates scenarios; 'user' (learner) practices them.
+// userType: 'admin' (educator) creates scenarios; 'user' (learner/student) practices them.
+//
+// Accounts live in two namespaces, keyed by `educatorId`:
+//   • Educators (`educatorId IS NULL`) sign up at `/` with the educator passcode. Their
+//     username is globally unique among educators and doubles as their distribution-link
+//     path segment (`/<username>`), so it is also checked against RESERVED_USERNAMES.
+//   • Students (`educatorId` set) sign up only through their educator's distribution link
+//     (`/<educator>`, optionally `?code=`). Their username is unique *within that educator*
+//     only — the same username + password may be registered independently under two
+//     different educators, and each is a separate account with separate progress.
 export const users = sqliteTable(
   'users',
   {
@@ -68,6 +77,15 @@ export const users = sqliteTable(
     userType: text('user_type', { enum: ['admin', 'user'] })
       .notNull()
       .default('user'),
+    // Owning educator for a student account; NULL for educators themselves. Deleting an
+    // educator cascades to their students (and, via their own cascades, to that student's
+    // messages / feedback / progress).
+    educatorId: text('educator_id').references((): AnySQLiteColumn => users.id, {
+      onDelete: 'cascade',
+    }),
+    // Educator-only: may anyone holding the plain class link `/<username>` sign up, or is an
+    // unused access code required? Default true (open class link).
+    openEnrollment: integer('open_enrollment', { mode: 'boolean' }).notNull().default(true),
     // Global (per-educator) simulated victim age, sent to the VT session to scale
     // the grooming guardrails. Stored as a representative integer (13 / 15 / 17).
     age: integer('age'),
@@ -91,9 +109,34 @@ export const users = sqliteTable(
     lastLoginAt: integer('last_login_at', { mode: 'timestamp_ms' }),
   },
   (table) => ({
-    usernameIdx: uniqueIndex('users_username_idx').on(table.username),
+    // Two partial unique indexes, one per namespace (see the table comment above). SQLite
+    // treats NULLs as distinct in a composite unique index, so a plain UNIQUE(educator_id,
+    // username) would let two educators share a username — hence the explicit WHERE clauses.
+    studentUsernameIdx: uniqueIndex('users_educator_username_idx')
+      .on(table.educatorId, table.username)
+      .where(sql`${table.educatorId} IS NOT NULL`),
+    educatorUsernameIdx: uniqueIndex('users_username_idx')
+      .on(table.username)
+      .where(sql`${table.educatorId} IS NULL`),
   })
 );
+
+// Educator usernames become URL path segments (`/<username>` is the student entry point), so
+// they must never shadow a real route. Checked at educator signup.
+export const RESERVED_USERNAMES = [
+  'admin',
+  'api',
+  'chat',
+  'complete',
+  'welcome',
+  'login',
+  'logout',
+  'signup',
+  'select-user',
+  'favicon.ico',
+  'logo.svg',
+  '_next',
+] as const;
 
 // Scenarios table
 export const scenarios = sqliteTable(

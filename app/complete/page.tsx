@@ -13,34 +13,36 @@ import { DEFAULT_CLOSING_MARKDOWN } from "@/lib/welcome-content";
 // over" nudge). Mirrors the Welcome screen (app/welcome/page.tsx).
 export default function CompletePage() {
   const router = useRouter();
-  const { authHydrated, isAuthenticated, userType, adminUserId, logout } = useScenarioStore();
+  const { authHydrated, isAuthenticated, userType, adminName, logout } = useScenarioStore();
+  // Captured before logout clears the store, so the button can return the learner to their
+  // own class page rather than the educator-only home page.
+  const [classPath] = useState(() => (adminName ? `/${encodeURIComponent(adminName)}` : "/"));
   const [content, setContent] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!authHydrated) return;
-    if (!isAuthenticated) { router.push("/"); return; }
+    if (!isAuthenticated) { router.push(classPath); return; }
     if (userType === "admin") { router.push("/admin"); return; }
 
     let cancelled = false;
     (async () => {
       let md = "";
       // Learners don't carry the educator's closing markdown in their own store, so fetch it
-      // the same way the welcome screen fetches the welcome markdown.
-      if (adminUserId) {
-        try {
-          const res = await fetch("/api/get-admin-info", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ adminId: adminUserId }),
-          });
-          if (res.ok) {
-            const { adminUser } = await res.json();
-            md = (adminUser?.closingMarkdown ?? "").trim();
-          }
-        } catch (err) {
-          console.error("Failed to load closing content:", err);
+      // the same way the welcome screen fetches the welcome markdown. The educator is
+      // resolved server-side from the session.
+      try {
+        const res = await fetch("/api/get-admin-info", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        if (res.ok) {
+          const { adminUser } = await res.json();
+          md = (adminUser?.closingMarkdown ?? "").trim();
         }
+      } catch (err) {
+        console.error("Failed to load closing content:", err);
       }
       if (cancelled) return;
       setContent(md || DEFAULT_CLOSING_MARKDOWN);
@@ -48,11 +50,11 @@ export default function CompletePage() {
     })();
 
     return () => { cancelled = true; };
-  }, [authHydrated, isAuthenticated, userType, adminUserId, router]);
+  }, [authHydrated, isAuthenticated, userType, classPath, router]);
 
   const handleLogout = async () => {
     await logout();
-    router.push("/");
+    router.push(classPath);
   };
 
   if (!ready || content === null) {

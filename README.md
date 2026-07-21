@@ -13,8 +13,8 @@ RYLAI is an educational web application that simulates realistic chat conversati
 - 🤖 Real-time AI-powered predator simulation (VT Custom / StagePilot, with automatic stage prediction)
 - 📊 7 stages of grooming progression (0-6)
 - 💡 Personalized feedback on conversation responses
-- 👨‍🏫 Educator portal for scenario management
-- 🔐 Username + password accounts (educators vs learners)
+- 👨‍🏫 Educator portal for scenario management and class distribution
+- 🔐 Username + password accounts — educators at `/`, students through their educator's class link
 - 🔒 Safe, controlled learning environment
 
 ## Tech Stack
@@ -87,16 +87,30 @@ RYLAI is an educational web application that simulates realistic chat conversati
 ## User Types & Authentication
 
 Authentication is username + password (no email is collected). There are two account
-types, distinguished at sign-up:
+types, and they register in two different places:
 
-| User Type | How to register | Purpose |
-|-----------|-----------------|---------|
-| **Educator / Admin** | Sign up **with** the educator passcode (`ADMIN_PASSCODE`) | Create and manage scenarios |
-| **Learner** | Sign up **without** a passcode | Practice with an educator's scenarios |
+| User Type | Where to register | Purpose |
+|-----------|-------------------|---------|
+| **Educator / Admin** | The root page `/`, **with** the educator passcode (`ADMIN_PASSCODE`) — required | Create and manage scenarios |
+| **Learner / Student** | Only the educator's class link `/<educatorUsername>` (optionally `?code=<accessCode>`) | Practice that educator's scenarios |
 
 Passwords are bcrypt-hashed (minimum 8 characters); sessions use an HMAC-signed httpOnly
-cookie. Learners pick which educator's scenarios to practice on the "Select a Teacher"
-page (educators are listed by username).
+cookie.
+
+**The learner flow starts with the class link.** Each educator gets a link built from their
+username (`https://<host>/<educatorUsername>`), which they copy from the Distribution tab of
+the admin page and hand out. That link is both the sign-up page and the return login page for
+their students; from there a learner goes to the educator's welcome screen (if they wrote
+one) and on to the first scenario. There is no page for browsing or choosing an educator.
+
+**Student accounts are scoped to one educator.** The same username may be registered under
+two different educators — those are two independent accounts, each needing its own sign-up,
+with separate progress. An account can never be carried over to another educator's class.
+
+**Enrollment control.** By default anyone holding the class link can sign up. An educator can
+turn that off, in which case joining requires one of the single-use access codes they issue
+(distributed as `/<educatorUsername>?code=<accessCode>` invite links). Codes are only valid
+in the class that issued them.
 
 ## Docker Deployment
 
@@ -182,7 +196,8 @@ Opens a web interface at `https://local.drizzle.studio` to view and edit databas
 
 The application uses 5 main tables:
 
-1. **users** - User accounts (username/password; admin or user)
+1. **users** - User accounts (username/password; admin or user). A student row carries the
+   `educator_id` of the class it belongs to; educators have `educator_id = NULL`
 2. **scenarios** - Educator-created chat scenarios
 3. **user_messages** - Learner chat history (with VT-predicted stage)
 4. **user_feedbacks** - Generated educational feedback
@@ -195,14 +210,15 @@ For detailed schema information, see [CLAUDE.md](CLAUDE.md).
 ```
 Rylai/
 ├── app/                      # Next.js App Router
-│   ├── page.tsx             # Landing page (login)
-│   ├── admin/               # Scenario management
+│   ├── page.tsx             # Root page (educator login / sign-up)
+│   ├── [educator]/          # Class link: student sign-up / login + class entry
+│   ├── admin/               # Scenario management + class distribution
 │   ├── chat/[scenario]/     # Chat interface
-│   ├── select-user/         # Educator selection
 │   ├── store/               # Zustand state management
 │   └── api/                 # API routes
 │       ├── chat/            # AI chat endpoint
 │       ├── feedback/        # Feedback generation
+│       ├── educator/        # Educator lookup + student roster
 │       └── health/          # Health check
 ├── lib/
 │   └── db/                  # Database layer
@@ -239,20 +255,28 @@ npm run lint             # Run ESLint
 - `GET /api/health` - Health check endpoint
 - `POST /api/chat` - Generate AI predator responses
 - `POST /api/feedback` - Generate educational feedback
+- `GET /api/educator?username=` - Resolve an educator for their class page
+- `GET /api/access-codes/lookup?code=&educator=` - Check an invite link's code against that class
 
 ### Auth Endpoints
 
-- `POST /api/auth/signup` - Create an account (username + password; admin via passcode)
-- `POST /api/auth/login` - Log in and set the session cookie
-- `POST /api/auth/logout` - Clear the session cookie
-- `GET /api/auth/me` - Get the current session user
+- `POST /api/auth/signup` - Create an account: educator (with the passcode) or student
+  (with `educator`, the class-link username)
+- `POST /api/auth/login` - Log in and set the session cookie; scoped by `educator` for students
+- `POST /api/auth/logout` - Clear the session cookie (and the class cookie)
+- `GET /api/auth/me` - Get the current session user (and, for a student, their educator)
 
 ### Internal Endpoints
 
-- `POST /api/get-users-with-progress` - List educators with learner progress
-- `POST /api/get-admin-info` - Get / update educator information
-- `POST /api/get-admin-scenarios` - Get educator's scenarios
-- `POST /api/delete-user` - Delete user account
+Each of these resolves the acting user from the session cookie — no user or educator id is
+accepted from the client.
+
+- `GET /api/educator/students` - The signed-in educator's student roster with progress
+- `POST /api/get-admin-info` - Read the acting user's class settings; `PATCH` to update the
+  signed-in educator's own
+- `POST /api/get-admin-scenarios` - Get the acting user's class scenarios
+- `GET|POST|DELETE /api/access-codes` - Manage the educator's access codes
+- `POST /api/delete-user` - Delete the signed-in account (an educator's students cascade with it)
 
 ## Grooming Stages
 

@@ -6,21 +6,22 @@ import { useScenarioStore } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import Markdown from "@/components/Markdown";
 
-// Learner-facing Welcome screen (Evaluation Plan §6, L105–121): shown after a learner picks
-// an educator and before the first scenario. Renders the educator's welcome markdown, with a
+// Learner-facing Welcome screen (Evaluation Plan §6, L105–121): shown when a learner enters
+// their class and before the first scenario. Renders the educator's welcome markdown, with a
 // "Let's Begin" button into the first scenario. If the educator has no welcome content, it
 // skips straight to the first scenario (so direct navigation / refresh stays graceful).
 export default function WelcomePage() {
   const router = useRouter();
-  const { authHydrated, isAuthenticated, userType, adminUserId, loadUserScenarios } = useScenarioStore();
+  const { authHydrated, isAuthenticated, userType, adminName, loadUserScenarios } = useScenarioStore();
   const [content, setContent] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+  const [emptyClass, setEmptyClass] = useState(false);
 
   useEffect(() => {
     if (!authHydrated) return;
-    if (!isAuthenticated) { router.push("/"); return; }
+    // Unauthenticated learners belong on their class page, which is where they log in.
+    if (!isAuthenticated) { router.push(adminName ? `/${encodeURIComponent(adminName)}` : "/"); return; }
     if (userType === "admin") { router.push("/admin"); return; }
-    if (!adminUserId) { router.push("/select-user"); return; }
 
     let cancelled = false;
     (async () => {
@@ -30,10 +31,11 @@ export default function WelcomePage() {
 
       let md = "";
       try {
+        // The educator is resolved server-side from the session — the client never names it.
         const res = await fetch("/api/get-admin-info", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ adminId: adminUserId }),
+          body: JSON.stringify({}),
         });
         if (res.ok) {
           const { adminUser } = await res.json();
@@ -45,8 +47,9 @@ export default function WelcomePage() {
 
       if (cancelled) return;
       const list = useScenarioStore.getState().scenarios;
+      if (list.length === 0) { setEmptyClass(true); setReady(true); return; }
       if (!md) {
-        router.replace(list.length > 0 ? `/chat/${list[0].slug}` : "/select-user");
+        router.replace(`/chat/${list[0].slug}`);
         return;
       }
       setContent(md);
@@ -54,12 +57,21 @@ export default function WelcomePage() {
     })();
 
     return () => { cancelled = true; };
-  }, [authHydrated, isAuthenticated, userType, adminUserId, router, loadUserScenarios]);
+  }, [authHydrated, isAuthenticated, userType, adminName, router, loadUserScenarios]);
 
   const handleBegin = () => {
     const list = useScenarioStore.getState().scenarios;
     if (list.length > 0) router.push(`/chat/${list[0].slug}`);
   };
+
+  if (ready && emptyClass) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-gray-50 p-6 text-center">
+        <p className="text-gray-700">This class doesn&apos;t have any scenarios yet.</p>
+        <p className="text-sm text-gray-500">Check back once your educator sets them up.</p>
+      </div>
+    );
+  }
 
   if (!ready || content === null) {
     return (

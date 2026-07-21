@@ -1,23 +1,28 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
 import { scenarios as scenariosTable } from '@/lib/db/schema';
 import { eq } from 'drizzle-orm';
+import { getSessionUserId } from '@/lib/auth/session';
+import { resolveEducatorIdForUser } from '@/lib/auth/educator';
 
-export async function POST(req: NextRequest) {
+// Scenarios for the signed-in user: an educator's own, or the class a student is bound to.
+// The owner comes from the session (users.educator_id) — it used to be named by the client,
+// which let anyone dump any educator's full scenario configuration.
+export async function POST() {
   try {
-    const { adminId, adminUserId } = await req.json();
-    const userId = adminId || adminUserId;
+    const sessionUserId = await getSessionUserId();
+    if (!sessionUserId) {
+      return NextResponse.json({ error: 'Not signed in' }, { status: 401 });
+    }
 
-    if (!userId) {
-      return NextResponse.json(
-        { error: 'adminId or adminUserId is required' },
-        { status: 400 }
-      );
+    const educatorId = await resolveEducatorIdForUser(sessionUserId);
+    if (!educatorId) {
+      return NextResponse.json({ error: 'No class is associated with this account' }, { status: 403 });
     }
 
     // presetMessages is a json-mode column — drizzle returns it as a parsed array.
     const scenarios = await db.query.scenarios.findMany({
-      where: eq(scenariosTable.userId, userId)
+      where: eq(scenariosTable.userId, educatorId),
     });
 
     return NextResponse.json({ scenarios });

@@ -4,6 +4,10 @@ import type { NextRequest } from 'next/server';
 // Edge-safe verification of the HMAC-signed session cookie. Must stay in sync
 // with lib/auth/session.ts (same cookie name, same `${userId}.${hexHmac}` format).
 const SESSION_COOKIE_NAME = 'rylai_session';
+// Set for students at login/signup (lib/auth/session.ts). Holds the educator's username so an
+// expired student session can be bounced to their own login page instead of `/`, which is
+// educator-only. It is a routing hint, never an authorization signal.
+const CLASS_COOKIE_NAME = 'rylai_class';
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -35,11 +39,16 @@ export async function middleware(request: NextRequest) {
   if (await verifySession(token)) {
     return NextResponse.next();
   }
+  // Not signed in. Students belong on their class page (`/<educator>`), which is the only
+  // place they can log back in; everyone else goes to the educator login at `/`.
   const url = request.nextUrl.clone();
-  url.pathname = '/';
+  const className = request.cookies.get(CLASS_COOKIE_NAME)?.value;
+  url.search = '';
+  url.pathname = className ? `/${encodeURIComponent(className)}` : '/';
   return NextResponse.redirect(url);
 }
 
 export const config = {
-  matcher: ['/chat/:path*', '/admin/:path*', '/select-user/:path*', '/welcome', '/complete'],
+  // `/[educator]` is deliberately absent: it is the public student login/signup page.
+  matcher: ['/chat/:path*', '/admin/:path*', '/welcome', '/complete'],
 };

@@ -8,76 +8,31 @@ import Image from "next/image";
 
 type Mode = "login" | "signup";
 
-// Invite-link state: resolved from the ?code= param via /api/access-codes/lookup. When a
-// valid unused code is present, the signup form pre-applies the code + educator so a
-// participant only enters a username and password (§6, L101–102 invite flow).
-interface Invite {
-  code: string;
-  status: "valid" | "used" | "invalid";
-  educatorUsername: string | null;
-}
-
+// Educator entry point. Students never sign in here — they can only sign up and log in
+// through their educator's distribution link (`/<educatorUsername>`), which is also the only
+// place their credentials exist (usernames are scoped per educator). A student who does land
+// here while signed in is bounced to their own class page.
 export default function Home() {
   const router = useRouter();
-  const { setAuthUser, loadUserScenarios, isAuthenticated, isAdmin, authHydrated } = useScenarioStore();
+  const { setAuthUser, loadUserScenarios, isAuthenticated, isAdmin, authHydrated, adminName } =
+    useScenarioStore();
 
   const [mode, setMode] = useState<Mode>("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [passcode, setPasscode] = useState("");
-  const [accessCode, setAccessCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // When arriving from an educator-dedicated URL (/<educator>), we remember it here and route
-  // learners back to it after auth (so they land in that educator's scenarios). §6, L96–97.
-  const [educatorParam, setEducatorParam] = useState<string | null>(null);
-  const [invite, setInvite] = useState<Invite | null>(null);
-  useEffect(() => {
-    const search = new URLSearchParams(window.location.search);
-    const e = search.get("educator");
-    if (e) setEducatorParam(e);
-
-    // Invite link: look the code up, pre-fill it, and jump straight to Sign Up.
-    const code = search.get("code")?.trim();
-    if (!code) return;
-    setMode("signup");
-    setAccessCode(code);
-    (async () => {
-      try {
-        const res = await fetch(`/api/access-codes/lookup?code=${encodeURIComponent(code)}`);
-        const d = await res.json();
-        if (!res.ok) throw new Error(d.error || "lookup failed");
-        const status: Invite["status"] = !d.found ? "invalid" : d.used ? "used" : "valid";
-        setInvite({ code, status, educatorUsername: d.educatorUsername ?? null });
-        // The code's educator is authoritative for post-signup routing (it defines the
-        // study enrollment), even if the URL's educator segment disagrees.
-        if (status === "valid" && d.educatorUsername) setEducatorParam(d.educatorUsername);
-      } catch (err) {
-        console.error("Invite code lookup failed:", err);
-        setInvite({ code, status: "invalid", educatorUsername: null });
-      }
-    })();
-  }, []);
-
-  const learnerLanding = () =>
-    educatorParam ? `/${encodeURIComponent(educatorParam)}` : "/select-user";
 
   // If already logged in (cookie session), skip the form.
   useEffect(() => {
-    if (authHydrated && isAuthenticated) {
-      router.replace(isAdmin ? "/admin" : learnerLanding());
+    if (!authHydrated || !isAuthenticated) return;
+    if (isAdmin) {
+      router.replace("/admin");
+    } else if (adminName) {
+      router.replace(`/${encodeURIComponent(adminName)}`);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authHydrated, isAuthenticated, isAdmin, educatorParam, router]);
-
-  const goToLanding = async (userType: "admin" | "user") => {
-    if (userType === "admin") {
-      await loadUserScenarios();
-      router.push("/admin");
-    } else {
-      router.push(learnerLanding());
-    }
-  };
+  }, [authHydrated, isAuthenticated, isAdmin, adminName, router]);
 
   const handleSubmit = async () => {
     setError(null);
@@ -89,6 +44,10 @@ export default function Home() {
     if (mode === "signup") {
       if (username.trim().length < 2) {
         setError("Username must be at least 2 characters.");
+        return;
+      }
+      if (!passcode.trim()) {
+        setError("The educator passcode is required to create an account.");
         return;
       }
       const pw = validatePassword(password);
@@ -104,12 +63,7 @@ export default function Home() {
       const body =
         mode === "login"
           ? { username: username.trim(), password }
-          : {
-              username: username.trim(),
-              password,
-              passcode: passcode.trim() || undefined,
-              accessCode: accessCode.trim() || undefined,
-            };
+          : { username: username.trim(), password, passcode: passcode.trim() };
 
       const res = await fetch(endpoint, {
         method: "POST",
@@ -123,26 +77,9 @@ export default function Home() {
         return;
       }
 
-      // Learner signup with a manually-typed access code: bind them to the code's educator
-      // (invite links already do this), so they skip the teacher picker entirely. The lookup
-      // still resolves after the code was consumed by this very signup.
-      let learnerTarget = educatorParam;
-      if (mode === "signup" && data.user.userType === "user" && !learnerTarget && accessCode.trim()) {
-        try {
-          const lr = await fetch(`/api/access-codes/lookup?code=${encodeURIComponent(accessCode.trim())}`);
-          const ld = await lr.json();
-          if (lr.ok && ld.found && ld.educatorUsername) learnerTarget = ld.educatorUsername;
-        } catch {
-          /* fall back to the teacher picker */
-        }
-      }
-
       setAuthUser(data.user);
-      if (data.user.userType === "admin") {
-        await goToLanding("admin");
-      } else {
-        router.push(learnerTarget ? `/${encodeURIComponent(learnerTarget)}` : "/select-user");
-      }
+      await loadUserScenarios();
+      router.push("/admin");
     } catch (err) {
       console.error("Auth error:", err);
       setError("Network error. Please try again.");
@@ -175,22 +112,13 @@ export default function Home() {
         </p>
 
         <div className="bg-white rounded-2xl shadow-lg p-8 text-left">
-          {/* Invite-link banner */}
-          {invite && (
-            invite.status === "valid" ? (
-              <div className="mb-6 rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-900">
-                You&apos;re joining{" "}
-                <span className="font-semibold">{invite.educatorUsername ?? "your educator"}</span>&apos;s
-                RYLAI class. Just pick a username and password to get started.
-              </div>
-            ) : (
-              <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                {invite.status === "used"
-                  ? "This invite link's access code has already been used. If that wasn't you, please contact your researcher for a new code."
-                  : "This invite link's access code isn't valid. Please check with your researcher, or enter a code manually below."}
-              </div>
-            )
-          )}
+          <div className="mb-6">
+            <h2 className="text-lg font-semibold text-gray-900">Educator sign in</h2>
+            <p className="text-sm text-gray-500 mt-1">
+              This page is for educators. Students join through the class link their educator
+              shares with them.
+            </p>
+          </div>
 
           {/* Login / Sign Up toggle */}
           <div className="flex gap-2 mb-6 p-1 bg-gray-100 rounded-full">
@@ -223,6 +151,12 @@ export default function Home() {
                 placeholder={mode === "signup" ? "Choose a username (2+ chars)" : "Enter your username"}
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
+              {mode === "signup" && (
+                <p className="text-xs text-gray-500 mt-1">
+                  This also becomes your class link: rylai.cs.vt.edu/
+                  <span className="font-mono">{username.trim() || "your-username"}</span>
+                </p>
+              )}
             </div>
 
             <div>
@@ -240,42 +174,18 @@ export default function Home() {
             {mode === "signup" && (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Access code
-                </label>
-                <input
-                  type="text"
-                  value={accessCode}
-                  onChange={(e) => setAccessCode(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                  readOnly={invite?.status === "valid"}
-                  placeholder="Enter the code your researcher gave you"
-                  className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 ${
-                    invite?.status === "valid" ? "bg-gray-50 text-gray-500 cursor-default" : ""
-                  }`}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {invite?.status === "valid"
-                    ? "Your access code was applied from the invite link."
-                    : "Participants need an access code to sign up. (Educators can leave this blank and use the passcode below.)"}
-                </p>
-              </div>
-            )}
-
-            {mode === "signup" && !invite && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Educator passcode <span className="text-gray-400 font-normal">(optional)</span>
+                  Educator passcode
                 </label>
                 <input
                   type="password"
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                  placeholder="Leave blank to register as a learner"
+                  placeholder="Provided by your administrator"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Educators enter the passcode provided by your administrator to create scenarios.
+                  Required — only educators can create accounts here.
                 </p>
               </div>
             )}
@@ -290,6 +200,11 @@ export default function Home() {
               {isSubmitting ? "Please wait..." : mode === "login" ? "Login" : "Create account"}
             </button>
           </div>
+
+          <p className="mt-6 border-t border-gray-100 pt-4 text-center text-xs text-gray-500">
+            Are you a student? Open the class link your educator gave you — your account only
+            exists inside their class.
+          </p>
         </div>
       </main>
     </div>

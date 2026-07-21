@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check, Link2, X, MessageSquare } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X, MessageSquare, Users } from "lucide-react";
+import { useScenarioStore } from "../store/useScenarioStore";
 
-// Per-scenario progress summary for the participant who redeemed a code (server-computed
-// from scenario_progress — see /api/access-codes GET).
-interface CodeProgress {
+// Per-scenario progress summary for a participant (server-computed from scenario_progress —
+// see lib/progress/educator-progress.ts).
+interface Progress {
   scenarioId: number;
   scenarioName: string;
   protectiveRate: number | null;
@@ -28,7 +29,24 @@ interface AccessCode {
   usedByUsername: string | null;
   usedAt: number | null;
   createdAt: number;
-  progress: CodeProgress[] | null;
+  progress: Progress[] | null;
+}
+
+interface Student {
+  id: string;
+  username: string;
+  createdAt: number;
+  lastLoginAt: number | null;
+  accessCode: string | null;
+  participantLabel: string | null;
+  progress: Progress[];
+}
+
+// What the details modal shows — either a student row or a redeemed code.
+interface Detail {
+  title: string;
+  subtitle: string;
+  progress: Progress[];
 }
 
 const pct = (rate: number | null) => (rate === null ? null : Math.round(rate * 100));
@@ -36,36 +54,42 @@ const fmtDate = (ms: number | null) => (ms ? new Date(ms).toLocaleString() : "�
 const fmtDay = (ms: number | null) =>
   ms ? new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
 
-// Participant access-code management (Evaluation Plan §6, L101–102). Educators issue codes /
-// invite links here; learners must present an unused code to sign up, which then consumes it.
-// Used codes show who redeemed them and a per-scenario progress summary (details in a modal).
-export default function AccessCodes({ educatorId, educatorUsername }: { educatorId: string; educatorUsername: string }) {
+// Distribution tab. Students can only reach a class through the educator's link, so this is
+// where that link lives, alongside the roster of everyone who has joined and the optional
+// per-participant access codes (Evaluation Plan §6, L101–102).
+export default function AccessCodes({ educatorUsername }: { educatorUsername: string }) {
+  const { openEnrollment, saveOpenEnrollment } = useScenarioStore();
   const [codes, setCodes] = useState<AccessCode[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [label, setLabel] = useState("");
   const [customCode, setCustomCode] = useState("");
   const [count, setCount] = useState(1);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  const [detailCode, setDetailCode] = useState<AccessCode | null>(null);
+  const [detail, setDetail] = useState<Detail | null>(null);
+  const [origin, setOrigin] = useState("");
+
+  useEffect(() => setOrigin(window.location.origin), []);
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`/api/access-codes?educatorId=${educatorId}`);
-      if (res.ok) {
-        const d = await res.json();
-        setCodes(d.codes || []);
-      }
+      const [codesRes, studentsRes] = await Promise.all([
+        fetch("/api/access-codes"),
+        fetch("/api/educator/students"),
+      ]);
+      if (codesRes.ok) setCodes((await codesRes.json()).codes || []);
+      if (studentsRes.ok) setStudents((await studentsRes.json()).students || []);
     } catch (e) {
-      console.error("Failed to load access codes:", e);
+      console.error("Failed to load distribution data:", e);
     }
-  }, [educatorId]);
+  }, []);
 
   useEffect(() => { load(); }, [load]);
 
   const create = async () => {
     setLoading(true);
     try {
-      const body: Record<string, unknown> = { educatorId, participantLabel: label };
+      const body: Record<string, unknown> = { participantLabel: label };
       if (customCode.trim()) body.code = customCode.trim();
       else body.count = count;
       const res = await fetch("/api/access-codes", {
@@ -88,19 +112,18 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
 
   const remove = async (c: AccessCode) => {
     if (c.usedByUserId && !confirm(
-      `Delete code ${c.code}?\n\nIt was redeemed by "${c.usedByUsername}". Deleting the code does NOT delete their account or data — only this code record (and its row here).`
+      `Delete code ${c.code}?\n\nIt was redeemed by "${c.usedByUsername}". Deleting the code does NOT delete their account or data — they stay in your Students list.`
     )) {
       return;
     }
-    await fetch(`/api/access-codes?id=${c.id}&educatorId=${educatorId}`, { method: "DELETE" });
+    await fetch(`/api/access-codes?id=${c.id}`, { method: "DELETE" });
     load();
   };
 
-  // Invite link: /<educator>?code=<code> — the educator segment keeps study URLs
-  // recognizable at a glance; the code pre-fills signup so participants only pick a
-  // username + password.
-  const inviteLink = (code: string) =>
-    `${window.location.origin}/${encodeURIComponent(educatorUsername)}?code=${encodeURIComponent(code)}`;
+  // The class link is the only student entry point. The `?code=` form binds a specific
+  // participant; the plain form works whenever open enrollment is on.
+  const classLink = `${origin}/${encodeURIComponent(educatorUsername)}`;
+  const inviteLink = (code: string) => `${classLink}?code=${encodeURIComponent(code)}`;
 
   const copy = (key: string, text: string) => {
     navigator.clipboard?.writeText(text);
@@ -112,12 +135,125 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
 
   return (
     <div className="space-y-6">
-      {/* Generate */}
+      {/* Class link */}
       <div className="bg-white rounded-lg shadow-md p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-1">Create access codes</h3>
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Your class link</h3>
         <p className="text-sm text-gray-500 mb-4">
-          Participants need a code to sign up — share the <span className="font-medium">invite link</span> and
-          they only pick a username and password. Enter a specific code (e.g.{" "}
+          Share this with your students — it is the only way into your class. They sign up
+          here, and come back to the same link to log in later. Usernames are yours alone: a
+          student in another educator&apos;s class can use the same name without a clash.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <code className="flex-1 min-w-[240px] truncate rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-800">
+            {classLink}
+          </code>
+          <button
+            onClick={() => copy("class-link", classLink)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700"
+          >
+            {copied === "class-link" ? <Check className="w-4 h-4" /> : <Link2 className="w-4 h-4" />}
+            Copy link
+          </button>
+        </div>
+
+        <label className="mt-4 flex items-start gap-3 rounded-lg border border-gray-100 bg-gray-50/70 px-4 py-3">
+          <input
+            type="checkbox"
+            checked={openEnrollment}
+            onChange={(e) => saveOpenEnrollment(e.target.checked)}
+            className="mt-0.5 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+          />
+          <span className="text-sm">
+            <span className="font-medium text-gray-800">
+              Anyone with the class link can join
+            </span>
+            <span className="mt-0.5 block text-xs text-gray-500">
+              {openEnrollment
+                ? "Students sign up with just a username and password. Turn this off to require an access code."
+                : "Access code required — only the per-participant invite links below can be used to sign up."}
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {/* Students */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">Students</h3>
+            <p className="text-sm text-gray-500">Everyone who has joined your class.</p>
+          </div>
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700">
+            <Users className="h-3.5 w-3.5" />
+            {students.length}
+          </span>
+        </div>
+        {students.length === 0 ? (
+          <p className="text-sm text-gray-400 italic">
+            No students yet — share your class link to get started.
+          </p>
+        ) : (
+          <div className="overflow-x-auto -mx-2">
+            <table className="w-full min-w-[640px] text-sm">
+              <thead>
+                <tr className="text-left text-[11px] uppercase tracking-wider text-gray-400">
+                  <th className="px-2 pb-2 font-medium">Student</th>
+                  <th className="px-2 pb-2 font-medium">Joined via</th>
+                  <th className="px-2 pb-2 font-medium">Progress</th>
+                  <th className="px-2 pb-2 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {students.map((s) => (
+                  <tr key={s.id} className="transition-colors hover:bg-gray-50/70">
+                    <td className="px-2 py-3 align-middle">
+                      <div className="text-[13px] font-medium text-gray-900">{s.username}</div>
+                      <div className="text-[11px] text-gray-400">joined {fmtDay(s.createdAt)}</div>
+                    </td>
+                    <td className="px-2 py-3 align-middle">
+                      {s.accessCode ? (
+                        <div className="leading-tight">
+                          <span className="font-mono text-[12px] text-gray-700">{s.accessCode}</span>
+                          {s.participantLabel && (
+                            <div className="text-[11px] text-gray-400">{s.participantLabel}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-[12px] text-gray-400">Class link</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-3 align-middle">
+                      <ProgressChips progress={s.progress} />
+                    </td>
+                    <td className="px-2 py-3 align-middle text-right">
+                      <button
+                        onClick={() =>
+                          setDetail({
+                            title: s.username,
+                            subtitle: `joined ${fmtDate(s.createdAt)}${s.accessCode ? ` · code ${s.accessCode}` : " · class link"}`,
+                            progress: s.progress,
+                          })
+                        }
+                        className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-700"
+                      >
+                        Details
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Generate codes */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-1">Access codes</h3>
+        <p className="text-sm text-gray-500 mb-4">
+          Optional, for tracking individual research participants: each code is single-use and
+          ties one signup to one participant. Share the <span className="font-medium">invite
+          link</span> and they only pick a username and password. Enter a specific code (e.g.{" "}
           <span className="font-mono">p1-rylai</span>), or leave it blank to generate random ones.
         </p>
         <div className="flex flex-wrap items-end gap-3">
@@ -165,14 +301,14 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
         </div>
       </div>
 
-      {/* List */}
+      {/* Code list */}
       <div className="bg-white rounded-lg shadow-md p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-800">Codes</h3>
           <div className="flex items-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 font-medium text-emerald-700">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              {usedCount} joined
+              {usedCount} redeemed
             </span>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 font-medium text-gray-500">
               <span className="h-1.5 w-1.5 rounded-full bg-gray-300" />
@@ -233,39 +369,7 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                       {/* Progress chips */}
                       <td className="px-2 py-3 align-middle">
                         {used && c.progress ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {c.progress.map((p, i) => {
-                              const started = p.visitCount > 0;
-                              const rate = pct(p.protectiveRate) ?? 0;
-                              const reached = !!p.masteryReachedAt;
-                              return (
-                                <span
-                                  key={p.scenarioId}
-                                  title={`${p.scenarioName} — ${started ? `${p.messageCount} messages · ${rate}% safe${reached ? " · target reached" : ""}` : "not started"}`}
-                                  className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
-                                    reached
-                                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                                      : started
-                                      ? "border-purple-200 bg-purple-50 text-purple-700"
-                                      : "border-gray-200/70 bg-white text-gray-300"
-                                  }`}
-                                >
-                                  <span className="font-semibold">S{i + 1}</span>
-                                  {started ? (
-                                    <>
-                                      <span className="inline-flex items-center gap-0.5 opacity-70">
-                                        <MessageSquare className="h-2.5 w-2.5" />{p.messageCount}
-                                      </span>
-                                      <span>{rate}%</span>
-                                      {reached && <Check className="h-3 w-3" />}
-                                    </>
-                                  ) : (
-                                    <span className="opacity-60">—</span>
-                                  )}
-                                </span>
-                              );
-                            })}
-                          </div>
+                          <ProgressChips progress={c.progress} />
                         ) : (
                           <span className="text-gray-200">—</span>
                         )}
@@ -285,7 +389,13 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
                             Copy link
                           </button>
                           <button
-                            onClick={() => used && setDetailCode(c)}
+                            onClick={() =>
+                              used && c.progress && setDetail({
+                                title: c.usedByUsername ?? "Participant",
+                                subtitle: `code ${c.code}${c.participantLabel ? ` · ${c.participantLabel}` : ""} · joined ${fmtDate(c.usedAt)}`,
+                                progress: c.progress,
+                              })
+                            }
                             disabled={!used}
                             className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-gray-500 transition-colors enabled:hover:bg-purple-50 enabled:hover:text-purple-700 disabled:pointer-events-none disabled:opacity-0"
                             aria-hidden={!used}
@@ -311,25 +421,19 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
       </div>
 
       {/* Participant detail modal */}
-      {detailCode && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-16" onClick={() => setDetailCode(null)}>
+      {detail && (
+        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-16" onClick={() => setDetail(null)}>
           <div
             className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
               <div>
-                <h3 className="text-lg font-semibold leading-tight text-gray-900">
-                  {detailCode.usedByUsername ?? "Participant"}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Code <span className="font-mono">{detailCode.code}</span>
-                  {detailCode.participantLabel && <> · {detailCode.participantLabel}</>}
-                  {" · joined "}{fmtDate(detailCode.usedAt)}
-                </p>
+                <h3 className="text-lg font-semibold leading-tight text-gray-900">{detail.title}</h3>
+                <p className="text-xs text-gray-500">{detail.subtitle}</p>
               </div>
               <button
-                onClick={() => setDetailCode(null)}
+                onClick={() => setDetail(null)}
                 className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                 aria-label="Close"
               >
@@ -337,9 +441,9 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
               </button>
             </div>
             <div className="max-h-[65vh] overflow-y-auto px-6 py-4">
-              {detailCode.progress && detailCode.progress.length > 0 ? (
+              {detail.progress.length > 0 ? (
                 <div className="space-y-4">
-                  {detailCode.progress.map((p) => {
+                  {detail.progress.map((p) => {
                     const rate = pct(p.protectiveRate);
                     const started = p.visitCount > 0;
                     return (
@@ -377,6 +481,46 @@ export default function AccessCodes({ educatorId, educatorUsername }: { educator
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// One compact chip per scenario: messages sent, safe rate, and a check once the target is met.
+function ProgressChips({ progress }: { progress: Progress[] }) {
+  if (progress.length === 0) return <span className="text-gray-200">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {progress.map((p, i) => {
+        const started = p.visitCount > 0;
+        const rate = pct(p.protectiveRate) ?? 0;
+        const reached = !!p.masteryReachedAt;
+        return (
+          <span
+            key={p.scenarioId}
+            title={`${p.scenarioName} — ${started ? `${p.messageCount} messages · ${rate}% safe${reached ? " · target reached" : ""}` : "not started"}`}
+            className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-medium tabular-nums ${
+              reached
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : started
+                ? "border-purple-200 bg-purple-50 text-purple-700"
+                : "border-gray-200/70 bg-white text-gray-300"
+            }`}
+          >
+            <span className="font-semibold">S{i + 1}</span>
+            {started ? (
+              <>
+                <span className="inline-flex items-center gap-0.5 opacity-70">
+                  <MessageSquare className="h-2.5 w-2.5" />{p.messageCount}
+                </span>
+                <span>{rate}%</span>
+                {reached && <Check className="h-3 w-3" />}
+              </>
+            ) : (
+              <span className="opacity-60">—</span>
+            )}
+          </span>
+        );
+      })}
     </div>
   );
 }

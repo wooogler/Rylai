@@ -9,6 +9,14 @@ import crypto from 'crypto';
 export const SESSION_COOKIE_NAME = 'rylai_session';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
+// Which educator's class a student last signed in to, as a plain username. Not an
+// authorization signal — it exists only so the edge middleware can bounce an expired
+// student session to `/<educator>` (their login page) instead of `/`, which is now
+// educator-only. It deliberately outlives the session cookie so an expiry still routes
+// correctly, and is cleared on explicit logout.
+export const CLASS_COOKIE_NAME = 'rylai_class';
+const CLASS_MAX_AGE = 60 * 60 * 24 * 180; // 180 days
+
 function getSecret(): string {
   return process.env.SESSION_SECRET || 'dev-insecure-secret-change-me';
 }
@@ -56,4 +64,22 @@ export async function getSessionUserId(): Promise<string | null> {
 export async function destroySession(): Promise<void> {
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE_NAME);
+  cookieStore.delete(CLASS_COOKIE_NAME);
+}
+
+// Remember the class a student just authenticated into (see CLASS_COOKIE_NAME).
+export async function setClassCookie(educatorUsername: string): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.set(CLASS_COOKIE_NAME, educatorUsername, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    maxAge: CLASS_MAX_AGE,
+  });
+}
+
+export async function clearClassCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  cookieStore.delete(CLASS_COOKIE_NAME);
 }
