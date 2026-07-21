@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { FeedbackConfig, ClassificationConfig, ResponseType } from '@/lib/db/schema';
+import type { FeedbackConfig, ClassificationConfig, ResponseType, StageEscalationConfig } from '@/lib/db/schema';
 
 export type { ResponseType };
 export type ResponseLabel = 'protective' | 'neutral' | 'vulnerable';
@@ -230,7 +230,7 @@ export interface AuthUser {
   classificationConfig?: ClassificationConfig | null;
   welcomeMarkdown?: string | null;
   closingMarkdown?: string | null;
-  escalateOnVulnerable?: boolean;
+  stageEscalation?: StageEscalationConfig | null;
 }
 
 interface VtSessionState {
@@ -256,9 +256,9 @@ interface ScenarioStore {
   welcomeMarkdown: string | null;
   // Admin's own Closing-screen markdown (null = use the built-in default). Loaded from /api/auth/me.
   closingMarkdown: string | null;
-  // Global stage-progression policy (this educator's). For an admin it's their own setting;
-  // for a learner it's the picked educator's, loaded via setAdminContext. See schema.ts.
-  escalateOnVulnerable: boolean;
+  // Global per-step stage-progression policy (this educator's). For an admin it's their own
+  // setting; for a learner it's the picked educator's, loaded via setAdminContext. See schema.ts.
+  stageEscalation: StageEscalationConfig | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -271,7 +271,7 @@ interface ScenarioStore {
   splashSeen: Record<number, boolean>;
   setAuthUser: (user: AuthUser) => void;
   hydrateAuth: () => Promise<boolean>;
-  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null, escalateOnVulnerable?: boolean) => void;
+  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null, stageEscalation?: StageEscalationConfig | null) => void;
   loadUserScenarios: () => Promise<void>;
   setAge: (age: number | null) => Promise<void>;
   saveAdminPrompts: (
@@ -280,7 +280,7 @@ interface ScenarioStore {
   ) => Promise<void>;
   saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
   saveClosingMarkdown: (closingMarkdown: string | null) => Promise<void>;
-  saveEscalateOnVulnerable: (escalateOnVulnerable: boolean) => Promise<void>;
+  saveStageEscalation: (stageEscalation: StageEscalationConfig | null) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<Scenario | null>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -323,7 +323,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       classificationConfig: null,
       welcomeMarkdown: null,
       closingMarkdown: null,
-      escalateOnVulnerable: false,
+      stageEscalation: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -349,7 +349,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 classificationConfig: user.classificationConfig ?? null,
                 welcomeMarkdown: user.welcomeMarkdown ?? null,
                 closingMarkdown: user.closingMarkdown ?? null,
-                escalateOnVulnerable: user.escalateOnVulnerable ?? false,
+                stageEscalation: user.stageEscalation ?? null,
               }
             : {}),
         });
@@ -381,15 +381,15 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       // Learner picks an educator: adopt that educator's global age setting + name.
-      setAdminContext: (adminUserId, age, adminName, escalateOnVulnerable) => {
-        // escalateOnVulnerable is the picked educator's global stage-progression policy, needed
-        // by the chat governor. Keep the existing value when a caller doesn't provide it (only
-        // the chat page's reloadEducatorData fetches it authoritatively).
+      setAdminContext: (adminUserId, age, adminName, stageEscalation) => {
+        // stageEscalation is the picked educator's per-step stage policy, needed by the chat
+        // governor. Keep the existing value when a caller doesn't provide it (only the chat
+        // page's reloadEducatorData fetches it authoritatively).
         set((s) => ({
           adminUserId,
           age: age ?? null,
           adminName: adminName ?? null,
-          escalateOnVulnerable: escalateOnVulnerable ?? s.escalateOnVulnerable,
+          stageEscalation: stageEscalation !== undefined ? stageEscalation : s.stageEscalation,
         }));
       },
 
@@ -499,19 +499,18 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
-      // Persist the educator's global stage-progression policy (escalate the grooming stage
-      // on a vulnerable learner reply).
-      saveEscalateOnVulnerable: async (escalateOnVulnerable) => {
+      // Persist the educator's global per-step stage-progression policy.
+      saveStageEscalation: async (stageEscalation) => {
         const { userId } = get();
         if (!userId) return;
 
-        set({ escalateOnVulnerable });
+        set({ stageEscalation });
 
         try {
           await fetch('/api/get-admin-info', {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ userId, escalateOnVulnerable }),
+            body: JSON.stringify({ userId, stageEscalation }),
           });
         } catch (error) {
           console.error('Error updating stage-progression setting:', error);

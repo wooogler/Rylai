@@ -43,6 +43,17 @@ export const RESPONSE_TYPES = [
 ] as const;
 export type ResponseType = (typeof RESPONSE_TYPES)[number];
 
+// Global (educator-wide) stage-progression policy, configured per stage *step* — keyed by the
+// stage the conversation is leaving ("1" = the 1→2 step … "5" = the 5→6 step). When a step is
+// enabled, the online stranger holds that stage until the learner has given `minVulnerable`
+// vulnerable replies there, then advances one stage; protective/neutral replies never advance
+// it. A step left disabled (or absent) falls back to the model's own stage prediction.
+export interface StageEscalationStep {
+  enabled: boolean;
+  minVulnerable: number;
+}
+export type StageEscalationConfig = Record<string, StageEscalationStep>;
+
 // Users table — username + password authentication (no email; nothing is emailed).
 // `username` is the login id and the name shown to learners when picking an educator.
 // userType: 'admin' (educator) creates scenarios; 'user' (learner) practices them.
@@ -71,11 +82,9 @@ export const users = sqliteTable(
     // Educator-authored Closing-screen content (Markdown), shown when the learner finishes the
     // last scenario (the "Finish" action). Null = use the built-in default closing message.
     closingMarkdown: text('closing_markdown'),
-    // Global stage-progression policy (applies to all of this educator's scenarios / every
-    // stage transition). When true, a *vulnerable* learner reply advances the grooming stage
-    // by one (after the scenario's minimum exchanges); protective replies never advance it,
-    // neutral replies leave it to the model. When false, the model decides all stage changes.
-    escalateOnVulnerable: integer('escalate_on_vulnerable', { mode: 'boolean' }).notNull().default(false),
+    // Global stage-progression policy, per stage step. See StageEscalationConfig above.
+    // Null / missing step = that step is left to the model's own prediction.
+    stageEscalation: text('stage_escalation', { mode: 'json' }).$type<StageEscalationConfig>(),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

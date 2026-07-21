@@ -65,6 +65,18 @@ function countTrailingStage(messages: Message[], stage: number): number {
   return n;
 }
 
+// How many replies the participant has made *at* `stage` that were classified vulnerable.
+// User messages carry the stage they were sent at, so this is exact per stage step (the reply
+// that triggers an escalation counts for the stage it was made at, not the one it unlocks).
+function countVulnerableAtStage(messages: Message[], stage: number): number {
+  let n = 0;
+  for (const m of messages) {
+    if (m.carried) continue;
+    if (m.sender === 'user' && m.stage === stage && m.classification === 'vulnerable') n++;
+  }
+  return n;
+}
+
 // The classification of the most recent already-evaluated participant reply (the just-sent
 // reply isn't classified yet, so this is the previous one — a best-effort proxy).
 function lastClassifiedUserReply(messages: Message[]): ResponseLabel | null {
@@ -82,7 +94,7 @@ export default function ChatPage() {
   const {
     scenarios,
     age,
-    escalateOnVulnerable,
+    stageEscalation,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -452,10 +464,14 @@ export default function ChatPage() {
     setExpandedCommentId(null);
 
     // Add message to chat immediately
+    // The stage this reply is being made at — recorded on the message so the stage governor
+    // can count vulnerable replies per stage step (and so researchers can see it per reply).
+    const replyStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
     const newMessage: Message = {
       id: Date.now().toString(),
       text: textToSend,
       sender: "user",
+      stage: replyStage,
       timestamp: new Date(),
     };
     const conversationWithUser = [...messages, newMessage];
@@ -478,9 +494,7 @@ export default function ChatPage() {
       }
     }
 
-    // The stage the reply was made in (before the predator's next move).
     const userReplyIndex = conversationWithUser.length - 1;
-    const replyStage = scenario.autoStage ? (predictedStage ?? scenario.stage) : scenario.stage;
 
     // Show typing indicator and call the VT Custom chat API
     setIsTyping(true);
@@ -506,21 +520,23 @@ export default function ChatPage() {
       stageOverride = isPersist ? predictedStage : scenario.stage;
     } else if (scenario.autoStage && !scenario.assessmentMode) {
       // Assessment mode progresses naturally (no governor); training mode paces the stage.
-      const heldByPacing = countTrailingStage(messages, currentStage) < (scenario.minExchangesPerStage ?? 0);
-      const lastReply = lastClassifiedUserReply(messages);
-      const heldByProtective = lastReply === 'protective';
-      if (heldByPacing || heldByProtective) {
-        // Hold: still within the per-stage minimum, or the last reply was protective (§6 L249 —
-        // protective replies never escalate, so safe responding keeps the stranger in check).
-        stageOverride = currentStage;
-      } else if (escalateOnVulnerable && lastReply === 'vulnerable') {
-        // Educator's global policy: a vulnerable reply (learner took the bait) advances the
-        // grooming stage by one, capped at the scenario's max. This is what makes higher stages
-        // reachable where StagePilot's own prediction is conservative (e.g. Scenario 2's 4→5).
-        stageOverride = Math.min(currentStage + 1, scenario.maxStage ?? 6);
+      const step = stageEscalation?.[String(currentStage)];
+      if (step?.enabled) {
+        // Educator configured this stage step: hold here until the learner has given
+        // `minVulnerable` vulnerable replies at this stage, then advance one stage (capped at
+        // the scenario's max). Protective/neutral replies never count, so safe responding keeps
+        // the stranger in check (§6 L249). This is what makes higher stages reachable where
+        // StagePilot's own prediction is conservative (e.g. Scenario 2's 4→5).
+        const vulnerableHere = countVulnerableAtStage(messages, currentStage);
+        stageOverride = vulnerableHere >= Math.max(1, step.minVulnerable)
+          ? Math.min(currentStage + 1, scenario.maxStage ?? 6)
+          : currentStage;
       } else {
-        // Neutral reply (or policy off): leave the next stage to StagePilot's own prediction.
-        stageOverride = null;
+        // Step not configured: leave it to StagePilot's own prediction, with the original
+        // pacing (§6 L198) and protective (§6 L249) guards.
+        const heldByPacing = countTrailingStage(messages, currentStage) < (scenario.minExchangesPerStage ?? 0);
+        const heldByProtective = lastClassifiedUserReply(messages) === 'protective';
+        stageOverride = heldByPacing || heldByProtective ? currentStage : null;
       }
     }
 
@@ -781,7 +797,7 @@ export default function ChatPage() {
         });
         if (res.ok) {
           const { adminUser } = await res.json();
-          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null, adminUser.escalateOnVulnerable ?? false);
+          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null, adminUser.stageEscalation ?? null);
         }
       } catch (error) {
         console.error('Failed to reload educator settings:', error);

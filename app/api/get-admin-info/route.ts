@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { users, type FeedbackConfig, type ClassificationConfig } from '@/lib/db/schema';
+import { users, type FeedbackConfig, type ClassificationConfig, type StageEscalationConfig } from '@/lib/db/schema';
 import { and, eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
         age: true,
         welcomeMarkdown: true,
         closingMarkdown: true,
-        escalateOnVulnerable: true
+        stageEscalation: true
       }
     });
 
@@ -58,7 +58,7 @@ function sanitizeConfig<T>(value: unknown): T | null | undefined {
 // classification prompt overrides. Only the fields present in the body are changed.
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, escalateOnVulnerable } = await req.json();
+    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation } = await req.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -71,7 +71,8 @@ export async function PATCH(req: NextRequest) {
     if (age !== undefined) updates.age = age;
     if (welcomeMarkdown !== undefined) updates.welcomeMarkdown = welcomeMarkdown;
     if (closingMarkdown !== undefined) updates.closingMarkdown = closingMarkdown;
-    if (typeof escalateOnVulnerable === 'boolean') updates.escalateOnVulnerable = escalateOnVulnerable;
+    const se = sanitizeConfig<StageEscalationConfig>(stageEscalation);
+    if (se !== undefined) updates.stageEscalation = se;
 
     const fc = sanitizeConfig<FeedbackConfig>(feedbackConfig);
     if (fc !== undefined) updates.feedbackConfig = fc;

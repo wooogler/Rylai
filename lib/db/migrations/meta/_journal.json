@@ -85,6 +85,20 @@
       "when": 1784597742786,
       "tag": "0011_amazing_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1784630985191,
+      "tag": "0012_spooky_night_thrasher",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1784630999790,
+      "tag": "0013_early_justice",
+      "breakpoints": true
     }
   ]
 }
