@@ -24,7 +24,8 @@ export async function POST(req: NextRequest) {
         username: true,
         age: true,
         welcomeMarkdown: true,
-        closingMarkdown: true
+        closingMarkdown: true,
+        escalateOnVulnerable: true
       }
     });
 
@@ -57,7 +58,7 @@ function sanitizeConfig<T>(value: unknown): T | null | undefined {
 // classification prompt overrides. Only the fields present in the body are changed.
 export async function PATCH(req: NextRequest) {
   try {
-    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown } = await req.json();
+    const { userId, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, escalateOnVulnerable } = await req.json();
 
     if (!userId) {
       return NextResponse.json(
@@ -70,6 +71,7 @@ export async function PATCH(req: NextRequest) {
     if (age !== undefined) updates.age = age;
     if (welcomeMarkdown !== undefined) updates.welcomeMarkdown = welcomeMarkdown;
     if (closingMarkdown !== undefined) updates.closingMarkdown = closingMarkdown;
+    if (typeof escalateOnVulnerable === 'boolean') updates.escalateOnVulnerable = escalateOnVulnerable;
 
     const fc = sanitizeConfig<FeedbackConfig>(feedbackConfig);
     if (fc !== undefined) updates.feedbackConfig = fc;

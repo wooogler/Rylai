@@ -23,6 +23,7 @@ export async function GET() {
         classificationConfig: true,
         welcomeMarkdown: true,
         closingMarkdown: true,
+        escalateOnVulnerable: true,
       },
     });
 

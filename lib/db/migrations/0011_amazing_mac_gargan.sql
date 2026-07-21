@@ -1,0 +1,1 @@
+ALTER TABLE `users` ADD `escalate_on_vulnerable` integer DEFAULT false NOT NULL;

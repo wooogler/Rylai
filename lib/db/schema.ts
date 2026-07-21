@@ -71,6 +71,11 @@ export const users = sqliteTable(
     // Educator-authored Closing-screen content (Markdown), shown when the learner finishes the
     // last scenario (the "Finish" action). Null = use the built-in default closing message.
     closingMarkdown: text('closing_markdown'),
+    // Global stage-progression policy (applies to all of this educator's scenarios / every
+    // stage transition). When true, a *vulnerable* learner reply advances the grooming stage
+    // by one (after the scenario's minimum exchanges); protective replies never advance it,
+    // neutral replies leave it to the model. When false, the model decides all stage changes.
+    escalateOnVulnerable: integer('escalate_on_vulnerable', { mode: 'boolean' }).notNull().default(false),
     createdAt: integer('created_at', { mode: 'timestamp_ms' })
       .notNull()
       .$defaultFn(() => new Date()),

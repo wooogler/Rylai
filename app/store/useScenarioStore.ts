@@ -230,6 +230,7 @@ export interface AuthUser {
   classificationConfig?: ClassificationConfig | null;
   welcomeMarkdown?: string | null;
   closingMarkdown?: string | null;
+  escalateOnVulnerable?: boolean;
 }
 
 interface VtSessionState {
@@ -255,6 +256,9 @@ interface ScenarioStore {
   welcomeMarkdown: string | null;
   // Admin's own Closing-screen markdown (null = use the built-in default). Loaded from /api/auth/me.
   closingMarkdown: string | null;
+  // Global stage-progression policy (this educator's). For an admin it's their own setting;
+  // for a learner it's the picked educator's, loaded via setAdminContext. See schema.ts.
+  escalateOnVulnerable: boolean;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -267,7 +271,7 @@ interface ScenarioStore {
   splashSeen: Record<number, boolean>;
   setAuthUser: (user: AuthUser) => void;
   hydrateAuth: () => Promise<boolean>;
-  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null) => void;
+  setAdminContext: (adminUserId: string, age: number | null, adminName: string | null, escalateOnVulnerable?: boolean) => void;
   loadUserScenarios: () => Promise<void>;
   setAge: (age: number | null) => Promise<void>;
   saveAdminPrompts: (
@@ -276,6 +280,7 @@ interface ScenarioStore {
   ) => Promise<void>;
   saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
   saveClosingMarkdown: (closingMarkdown: string | null) => Promise<void>;
+  saveEscalateOnVulnerable: (escalateOnVulnerable: boolean) => Promise<void>;
   addScenario: (scenario: Omit<Scenario, 'id'>) => Promise<Scenario | null>;
   updateScenario: (id: number, scenario: Partial<Scenario>) => Promise<void>;
   deleteScenario: (id: number) => Promise<void>;
@@ -318,6 +323,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       classificationConfig: null,
       welcomeMarkdown: null,
       closingMarkdown: null,
+      escalateOnVulnerable: false,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -343,6 +349,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 classificationConfig: user.classificationConfig ?? null,
                 welcomeMarkdown: user.welcomeMarkdown ?? null,
                 closingMarkdown: user.closingMarkdown ?? null,
+                escalateOnVulnerable: user.escalateOnVulnerable ?? false,
               }
             : {}),
         });
@@ -374,8 +381,16 @@ export const useScenarioStore = create<ScenarioStore>()(
       },
 
       // Learner picks an educator: adopt that educator's global age setting + name.
-      setAdminContext: (adminUserId, age, adminName) => {
-        set({ adminUserId, age: age ?? null, adminName: adminName ?? null });
+      setAdminContext: (adminUserId, age, adminName, escalateOnVulnerable) => {
+        // escalateOnVulnerable is the picked educator's global stage-progression policy, needed
+        // by the chat governor. Keep the existing value when a caller doesn't provide it (only
+        // the chat page's reloadEducatorData fetches it authoritatively).
+        set((s) => ({
+          adminUserId,
+          age: age ?? null,
+          adminName: adminName ?? null,
+          escalateOnVulnerable: escalateOnVulnerable ?? s.escalateOnVulnerable,
+        }));
       },
 
       loadUserScenarios: async () => {
@@ -481,6 +496,25 @@ export const useScenarioStore = create<ScenarioStore>()(
           });
         } catch (error) {
           console.error('Error updating closing content:', error);
+        }
+      },
+
+      // Persist the educator's global stage-progression policy (escalate the grooming stage
+      // on a vulnerable learner reply).
+      saveEscalateOnVulnerable: async (escalateOnVulnerable) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        set({ escalateOnVulnerable });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ userId, escalateOnVulnerable }),
+          });
+        } catch (error) {
+          console.error('Error updating stage-progression setting:', error);
         }
       },
 

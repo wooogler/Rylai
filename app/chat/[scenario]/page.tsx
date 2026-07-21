@@ -82,6 +82,7 @@ export default function ChatPage() {
   const {
     scenarios,
     age,
+    escalateOnVulnerable,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -504,11 +505,23 @@ export default function ChatPage() {
     if (scenario.autoStage && isFirstTurn) {
       stageOverride = isPersist ? predictedStage : scenario.stage;
     } else if (scenario.autoStage && !scenario.assessmentMode) {
-      // Assessment mode progresses naturally (no governor); training mode holds the stage
-      // for pacing / after protective replies.
+      // Assessment mode progresses naturally (no governor); training mode paces the stage.
       const heldByPacing = countTrailingStage(messages, currentStage) < (scenario.minExchangesPerStage ?? 0);
-      const heldByProtective = lastClassifiedUserReply(messages) === 'protective';
-      stageOverride = heldByPacing || heldByProtective ? currentStage : null;
+      const lastReply = lastClassifiedUserReply(messages);
+      const heldByProtective = lastReply === 'protective';
+      if (heldByPacing || heldByProtective) {
+        // Hold: still within the per-stage minimum, or the last reply was protective (§6 L249 —
+        // protective replies never escalate, so safe responding keeps the stranger in check).
+        stageOverride = currentStage;
+      } else if (escalateOnVulnerable && lastReply === 'vulnerable') {
+        // Educator's global policy: a vulnerable reply (learner took the bait) advances the
+        // grooming stage by one, capped at the scenario's max. This is what makes higher stages
+        // reachable where StagePilot's own prediction is conservative (e.g. Scenario 2's 4→5).
+        stageOverride = Math.min(currentStage + 1, scenario.maxStage ?? 6);
+      } else {
+        // Neutral reply (or policy off): leave the next stage to StagePilot's own prediction.
+        stageOverride = null;
+      }
     }
 
     fetch('/api/chat', {
@@ -768,7 +781,7 @@ export default function ChatPage() {
         });
         if (res.ok) {
           const { adminUser } = await res.json();
-          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null);
+          setAdminContext(adminUser.id, adminUser.age ?? null, adminUser.username ?? null, adminUser.escalateOnVulnerable ?? false);
         }
       } catch (error) {
         console.error('Failed to reload educator settings:', error);

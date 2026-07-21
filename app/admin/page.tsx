@@ -54,6 +54,7 @@ export default function AdminPage() {
     classificationConfig,
     welcomeMarkdown,
     closingMarkdown,
+    escalateOnVulnerable,
     isAdmin,
     isAuthenticated,
     authHydrated,
@@ -67,6 +68,7 @@ export default function AdminPage() {
     saveAdminPrompts,
     saveWelcomeMarkdown,
     saveClosingMarkdown,
+    saveEscalateOnVulnerable,
     deleteAccount
   } = useScenarioStore();
 
@@ -85,6 +87,7 @@ export default function AdminPage() {
   const [editWelcome, setEditWelcome] = useState<string>('');
   const [showWelcomePreview, setShowWelcomePreview] = useState(false);
   const [editClosing, setEditClosing] = useState<string>('');
+  const [editEscalate, setEditEscalate] = useState<boolean>(false);
   const [showClosingPreview, setShowClosingPreview] = useState(false);
   const [splashPreview, setSplashPreview] = useState<Record<number, boolean>>({});
   // Auto-save status shown where the old "Save Changes" button was.
@@ -104,8 +107,8 @@ export default function AdminPage() {
   const savingRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initedRef = useRef(false);
-  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing });
-  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing };
+  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editEscalate });
+  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editEscalate };
 
   // Backfill newer per-scenario fields so older persisted/imported scenarios keep every input
   // controlled (no undefined -> defined warning). Shared by the sync effect and Add.
@@ -146,6 +149,7 @@ export default function AdminPage() {
       );
       await saveWelcomeMarkdown(snap.editWelcome);
       await saveClosingMarkdown(snap.editClosing);
+      await saveEscalateOnVulnerable(snap.editEscalate);
 
       const storeIds = new Set(useScenarioStore.getState().scenarios.map((s) => s.id));
       for (const scenario of snap.editingScenarios) {
@@ -190,6 +194,7 @@ export default function AdminPage() {
     setEditClassification(toClassificationEdit(st.classificationConfig));
     setEditWelcome(st.welcomeMarkdown ?? '');
     setEditClosing(st.closingMarkdown ?? '');
+    setEditEscalate(st.escalateOnVulnerable ?? false);
     initedRef.current = true;
   };
 
@@ -202,7 +207,7 @@ export default function AdminPage() {
     if (dirtyRef.current || savingRef.current) return;
     hydrateBuffersFromStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown]);
+  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, escalateOnVulnerable]);
 
   // Warn before leaving with an unsaved/in-flight edit (auto-save is debounced, so a fast
   // tab-close could otherwise drop the last change).
@@ -387,6 +392,7 @@ export default function AdminPage() {
       classificationConfig?: ReturnType<typeof fromClassificationEdit>;
       welcome?: string;
       closing?: string;
+      escalate?: boolean;
     }
   ) => {
     if (saveTimerRef.current) {
@@ -407,6 +413,7 @@ export default function AdminPage() {
       }
       if (globals.welcome !== undefined) await saveWelcomeMarkdown(globals.welcome);
       if (globals.closing !== undefined) await saveClosingMarkdown(globals.closing);
+      if (globals.escalate !== undefined) await saveEscalateOnVulnerable(globals.escalate);
 
       // Reconcile scenarios: update where the file's id matches an existing one (preserving
       // its learner data), add the rest, delete store scenarios absent from the file.
@@ -449,6 +456,7 @@ export default function AdminPage() {
       classificationConfig: fromClassificationEdit(editClassification),
       welcomeMarkdown: editWelcome,
       closingMarkdown: editClosing,
+      escalateOnVulnerable: editEscalate,
       scenarios: editingScenarios,
     };
     const dataStr = JSON.stringify(exportData, null, 2);
@@ -506,6 +514,7 @@ export default function AdminPage() {
           classificationConfig?: ReturnType<typeof fromClassificationEdit>;
           welcome?: string;
           closing?: string;
+          escalate?: boolean;
         } = {};
         if (!Array.isArray(imported)) {
           if ('age' in imported) {
@@ -522,6 +531,9 @@ export default function AdminPage() {
           }
           if ('closingMarkdown' in imported) {
             globals.closing = typeof imported.closingMarkdown === 'string' ? imported.closingMarkdown : '';
+          }
+          if ('escalateOnVulnerable' in imported) {
+            globals.escalate = !!imported.escalateOnVulnerable;
           }
         }
 
@@ -841,6 +853,35 @@ export default function AdminPage() {
                 className="mt-3 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               />
             )}
+          </div>
+
+          {/* Stage progression (global — applies to every scenario and every stage transition) */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h3 className="text-xl font-semibold">Stage progression</h3>
+            <p className="text-sm text-gray-500 mt-0.5 mb-3">
+              How the online stranger&apos;s grooming stage moves forward. Applies to all of your scenarios.
+            </p>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editEscalate}
+                onChange={(e) => { setEditEscalate(e.target.checked); scheduleSave(); }}
+                className="mt-1 h-4 w-4 accent-purple-600 cursor-pointer flex-shrink-0"
+              />
+              <span>
+                <span className="block text-sm font-medium text-gray-800">
+                  Advance the stage when a learner replies in a risky way
+                </span>
+                <span className="block text-xs text-gray-500 mt-1 leading-relaxed">
+                  A <span className="font-medium text-rose-600">vulnerable</span> reply — taking the bait, e.g. sharing
+                  personal info or agreeing to move off-platform — moves the stranger up one grooming stage.
+                  A <span className="font-medium text-emerald-600">protective</span> reply never advances it, so a
+                  learner who keeps responding safely holds the stranger back. Each scenario&apos;s
+                  <span className="font-medium"> minimum exchanges</span> (in its Auto-Stage box) still applies before any
+                  move. When off, the AI decides stage changes on its own from the whole conversation.
+                </span>
+              </span>
+            </label>
           </div>
 
           {/* Scenarios List */}
