@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client';
 import { users, accessCodes } from '@/lib/db/schema';
 import { and, eq, isNull } from 'drizzle-orm';
 import { getSessionUserId } from '@/lib/auth/session';
-import { buildProgressByUser, type ParticipantProgress } from '@/lib/progress/educator-progress';
+import { buildProgressByUser, countResetAllByUser, type ParticipantProgress } from '@/lib/progress/educator-progress';
 
 // The signed-in educator's full student roster with per-scenario progress. This is the
 // authoritative participant list: access codes only cover students who redeemed one, so
@@ -19,6 +19,8 @@ export interface StudentRow {
   accessCode: string | null;
   participantLabel: string | null;
   progress: ParticipantProgress[];
+  // Module-wide "Reset all" clicks. Per-scenario Restart counts live on each progress entry.
+  resetAllCount: number;
 }
 
 export async function GET() {
@@ -56,6 +58,7 @@ export async function GET() {
       educator.id,
       students.map((s) => s.id)
     );
+    const resetAllByUser = await countResetAllByUser(students.map((s) => s.id));
 
     const rows: StudentRow[] = students.map((s) => {
       const code = codeByUser.get(s.id);
@@ -67,6 +70,7 @@ export async function GET() {
         accessCode: code?.code ?? null,
         participantLabel: code?.participantLabel || null,
         progress: progressByUser.get(s.id) ?? [],
+        resetAllCount: resetAllByUser.get(s.id) ?? 0,
       };
     });
 

@@ -100,6 +100,10 @@ export const users = sqliteTable(
     // Educator-authored Closing-screen content (Markdown), shown when the learner finishes the
     // last scenario (the "Finish" action). Null = use the built-in default closing message.
     closingMarkdown: text('closing_markdown'),
+    // What learners are told to call this educator: the byline on feedback cards and the chat
+    // header badge. Deliberately a label, not the username — learners must not be able to tell
+    // one class from another. Null / blank = the built-in DEFAULT_INSTRUCTOR_LABEL.
+    instructorLabel: text('instructor_label'),
     // Global stage-progression policy, per stage step. See StageEscalationConfig above.
     // Null / missing step = that step is left to the model's own prediction.
     stageEscalation: text('stage_escalation', { mode: 'json' }).$type<StageEscalationConfig>(),
@@ -371,6 +375,101 @@ export const previewEvents = sqliteTable(
   })
 );
 
+// Conversations preserved when a learner uses Restart / Reset all. Both actions hard-delete
+// user_messages / user_feedbacks (see /api/scenario-progress DELETE), which used to destroy the
+// transcript outright; the reset now copies it here first, inside the same transaction. Rows
+// are written once and never updated. `archivedAt` is the moment of that reset and so doubles
+// as the run identifier — every row from one reset shares it, and ordering the distinct values
+// gives "attempt 1, 2, …" without a counter to keep in sync.
+//
+// Deliberately separate from the live tables: the chat, the safe-rate recompute and the roster
+// counts all query user_messages unfiltered, so keeping past runs out of it is what stops an
+// earlier attempt's replies from leaking into the current score.
+export const archivedMessages = sqliteTable(
+  'archived_messages',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scenarioId: integer('scenario_id')
+      .notNull()
+      .references(() => scenarios.id, { onDelete: 'cascade' }),
+    archivedAt: integer('archived_at', { mode: 'timestamp_ms' }).notNull(),
+    // Copied verbatim from user_messages.
+    messageId: text('message_id').notNull(),
+    text: text('text').notNull(),
+    sender: text('sender', { enum: ['user', 'other'] }).notNull(),
+    stage: integer('stage'),
+    classification: text('classification', { enum: ['protective', 'neutral', 'vulnerable'] }),
+    responseType: text('response_type', { enum: RESPONSE_TYPES }),
+    tacticRecognized: integer('tactic_recognized', { mode: 'boolean' }),
+    protectiveStrategy: integer('protective_strategy', { mode: 'boolean' }),
+    rationale: text('rationale'),
+    timestamp: integer('timestamp', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => ({
+    userScenarioIdx: index('archived_messages_user_scenario_idx').on(
+      table.userId,
+      table.scenarioId
+    ),
+  })
+);
+
+// The feedback that accompanied an archived conversation. Joined to archived_messages by
+// (userId, scenarioId, archivedAt, messageId).
+export const archivedFeedbacks = sqliteTable(
+  'archived_feedbacks',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    scenarioId: integer('scenario_id')
+      .notNull()
+      .references(() => scenarios.id, { onDelete: 'cascade' }),
+    archivedAt: integer('archived_at', { mode: 'timestamp_ms' }).notNull(),
+    messageId: text('message_id').notNull(),
+    feedbackText: text('feedback_text').notNull(),
+  },
+  (table) => ({
+    userScenarioIdx: index('archived_feedbacks_user_scenario_idx').on(
+      table.userId,
+      table.scenarioId
+    ),
+  })
+);
+
+// Restart / Reset all clicks, for the educator's participant stats. This needs its own table
+// rather than a counter column: both actions DELETE the learner's scenario_progress row (see
+// /api/scenario-progress DELETE), so a count kept there would be erased by the very action it
+// counts. Nothing in the reset paths touches this table.
+export const resetEvents = sqliteTable(
+  'reset_events',
+  {
+    id: text('id')
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    // The scenario for a per-scenario Restart; NULL for a module-wide Reset all, which is one
+    // click covering every scenario.
+    scenarioId: integer('scenario_id').references(() => scenarios.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['restart', 'reset_all'] }).notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' })
+      .notNull()
+      .$defaultFn(() => new Date()),
+  },
+  (table) => ({
+    userIdx: index('reset_events_user_idx').on(table.userId),
+  })
+);
+
 // Access codes — researcher-issued, single-use participant signup gate (Evaluation Plan §6,
 // L101–102). Each code is created by an educator, optionally labeled with a participant id
 // (e.g. "p1-rylai"), and consumed by the learner who signs up with it.
@@ -419,3 +518,10 @@ export type InsertScenarioProgress = typeof scenarioProgress.$inferInsert;
 
 export type PreviewEvent = typeof previewEvents.$inferSelect;
 export type InsertPreviewEvent = typeof previewEvents.$inferInsert;
+
+export type ArchivedMessage = typeof archivedMessages.$inferSelect;
+export type ArchivedFeedback = typeof archivedFeedbacks.$inferSelect;
+
+export type ResetEvent = typeof resetEvents.$inferSelect;
+export type InsertResetEvent = typeof resetEvents.$inferInsert;
+export type ResetEventKind = ResetEvent['kind'];

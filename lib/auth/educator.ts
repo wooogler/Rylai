@@ -14,6 +14,8 @@ export interface EducatorContext {
   hasWelcome: boolean;
   openEnrollment: boolean;
   stageEscalation: User['stageEscalation'];
+  // How this class's educator is named to its learners. Null = the built-in default label.
+  instructorLabel: string | null;
 }
 
 // Resolve an educator by their (globally unique) username. Only real educator rows match:
@@ -37,6 +39,7 @@ export function toEducatorContext(educator: User): EducatorContext {
     hasWelcome: !!(educator.welcomeMarkdown && educator.welcomeMarkdown.trim()),
     openEnrollment: educator.openEnrollment,
     stageEscalation: educator.stageEscalation ?? null,
+    instructorLabel: educator.instructorLabel ?? null,
   };
 }
 
@@ -52,6 +55,7 @@ export interface AuthUserPayload {
   welcomeMarkdown: string | null;
   closingMarkdown: string | null;
   stageEscalation: User['stageEscalation'];
+  instructorLabel: string | null;
   // Populated for students only: the class they belong to.
   educator: EducatorContext | null;
 }
@@ -78,6 +82,7 @@ export async function buildAuthUser(user: User): Promise<AuthUserPayload> {
     welcomeMarkdown: user.welcomeMarkdown ?? null,
     closingMarkdown: user.closingMarkdown ?? null,
     stageEscalation: user.stageEscalation ?? null,
+    instructorLabel: user.instructorLabel ?? null,
     educator,
   };
 }

@@ -150,6 +150,15 @@ export function ageBracketLabel(age: number | null): string {
   return AGE_BRACKETS.find(b => b.value === age)?.label ?? `${age}`;
 }
 
+// What learners call the educator: the feedback byline and the chat header badge. Educators
+// can override it per class (users.instructor_label); a null/blank override means this label.
+// Never the educator's username — learners must not be able to tell one class from another.
+export const DEFAULT_INSTRUCTOR_LABEL = "Instructor";
+
+export function instructorLabelOrDefault(label: string | null | undefined): string {
+  return label?.trim() || DEFAULT_INSTRUCTOR_LABEL;
+}
+
 export interface Scenario {
   id: number;
   slug: string;
@@ -231,6 +240,7 @@ export interface EducatorContext {
   hasWelcome: boolean;
   openEnrollment: boolean;
   stageEscalation?: StageEscalationConfig | null;
+  instructorLabel?: string | null;
 }
 
 export interface AuthUser {
@@ -245,6 +255,7 @@ export interface AuthUser {
   welcomeMarkdown?: string | null;
   closingMarkdown?: string | null;
   stageEscalation?: StageEscalationConfig | null;
+  instructorLabel?: string | null;
   // Present for students only; null for educators.
   educator?: EducatorContext | null;
 }
@@ -278,6 +289,9 @@ interface ScenarioStore {
   // Educator-only: may anyone with the plain class link sign up, or is an access code
   // required? Loaded for admins from /api/auth/me.
   openEnrollment: boolean;
+  // The learner-facing name for the educator. An admin's own override; for a learner, the
+  // bound educator's — both from the session payload. Null/blank = DEFAULT_INSTRUCTOR_LABEL.
+  instructorLabel: string | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   isAdmin: boolean;
@@ -299,6 +313,7 @@ interface ScenarioStore {
     feedbackConfig: FeedbackConfig | null,
     classificationConfig: ClassificationConfig | null
   ) => Promise<void>;
+  saveInstructorLabel: (instructorLabel: string | null) => Promise<void>;
   saveWelcomeMarkdown: (welcomeMarkdown: string | null) => Promise<void>;
   saveClosingMarkdown: (closingMarkdown: string | null) => Promise<void>;
   saveStageEscalation: (stageEscalation: StageEscalationConfig | null) => Promise<void>;
@@ -323,9 +338,10 @@ interface ScenarioStore {
   markSplashSeen: (scenarioId: number) => void;
   clearSplashSeen: (scenarioIds?: number[]) => void;
   recordScenarioVisit: (scenarioId: number) => Promise<void>;
-  recordScenarioLifecycle: (scenarioId: number, kind: 'completed' | 'comfort_exit') => Promise<void>;
+  recordScenarioLifecycle: (scenarioId: number, kind: 'completed' | 'comfort_exit' | 'comfort_exit_undo') => Promise<void>;
   loadScenarioProgress: () => Promise<Map<number, ScenarioProgress>>;
   resetScenarioProgress: (scenarioId: number) => Promise<void>;
+  recordResetEvent: (kind: 'restart' | 'reset_all', scenarioId?: number) => Promise<void>;
   setVtSession: (scenarioId: number, vtSessionId: string | null, autoStage: number | null, seededStage?: number | null) => void;
   logout: () => Promise<void>;
   deleteAccount: () => Promise<void>;
@@ -346,6 +362,7 @@ export const useScenarioStore = create<ScenarioStore>()(
       closingMarkdown: null,
       stageEscalation: null,
       openEnrollment: true,
+      instructorLabel: null,
       isLoading: false,
       isAuthenticated: false,
       isAdmin: false,
@@ -375,6 +392,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 welcomeMarkdown: user.welcomeMarkdown ?? null,
                 closingMarkdown: user.closingMarkdown ?? null,
                 stageEscalation: user.stageEscalation ?? null,
+                instructorLabel: user.instructorLabel ?? null,
                 adminUserId: null,
                 adminName: null,
               }
@@ -383,6 +401,7 @@ export const useScenarioStore = create<ScenarioStore>()(
                 adminName: user.educator?.username ?? null,
                 age: user.educator?.age ?? null,
                 stageEscalation: user.educator?.stageEscalation ?? null,
+                instructorLabel: user.educator?.instructorLabel ?? null,
               }),
         });
       },
@@ -498,6 +517,26 @@ export const useScenarioStore = create<ScenarioStore>()(
           });
         } catch (error) {
           console.error('Error updating prompts:', error);
+        }
+      },
+
+      // Persist the educator's learner-facing name. Blank clears the override, so learners
+      // fall back to DEFAULT_INSTRUCTOR_LABEL (the server normalizes blank → null too).
+      saveInstructorLabel: async (instructorLabel) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        const normalized = instructorLabel?.trim() ? instructorLabel.trim() : null;
+        set({ instructorLabel: normalized });
+
+        try {
+          await fetch('/api/get-admin-info', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ instructorLabel: normalized }),
+          });
+        } catch (error) {
+          console.error('Error updating instructor label:', error);
         }
       },
 
@@ -817,6 +856,8 @@ export const useScenarioStore = create<ScenarioStore>()(
       // Record a lifecycle exit for this scenario: 'completed' (final-scenario "End Chat")
       // or 'comfort_exit' ("I don't feel comfortable anymore."). Stamps the matching
       // timestamp column on scenario_progress for downstream research analysis.
+      // 'comfort_exit_undo' takes a mis-clicked exit back, clearing the stamp; unlike Restart
+      // it leaves the conversation, feedback and progress alone.
       recordScenarioLifecycle: async (scenarioId, kind) => {
         const { userId } = get();
         if (!userId) return;
@@ -875,6 +916,25 @@ export const useScenarioStore = create<ScenarioStore>()(
         }
       },
 
+      // Log a confirmed Restart / Reset all so the educator can see how often a participant
+      // started over. Kept in its own table: the reset itself deletes the progress row, so a
+      // counter stored there would be wiped by the action it counts. The server takes the
+      // actor from the session, so no userId is sent.
+      recordResetEvent: async (kind, scenarioId) => {
+        const { userId } = get();
+        if (!userId) return;
+
+        try {
+          await fetch('/api/reset-events', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ kind, scenarioId }),
+          });
+        } catch (error) {
+          console.error('Error recording reset event:', error);
+        }
+      },
+
       resetScenarioProgress: async (scenarioId: number) => {
         const { userId } = get();
         if (!userId) return;
@@ -917,6 +977,7 @@ export const useScenarioStore = create<ScenarioStore>()(
           adminUserId: null,
           adminName: null,
           stageEscalation: null,
+          instructorLabel: null,
           vtSessions: {},
         });
       },

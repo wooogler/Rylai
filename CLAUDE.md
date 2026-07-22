@@ -90,9 +90,9 @@ The global store (`app/store/useScenarioStore.ts`) uses Zustand with persistence
 - **Persisted** (`partialize`): `scenarios`, `vtSessions`, `splashSeen`
 - **NOT persisted (derived from the session payload)**: `userId`, `userType`,
   `isAuthenticated`, `isAdmin`, `currentUser`, `authHydrated`; the learner's class context
-  `adminUserId`, `adminName`, `age`; and the educator's own settings `feedbackConfig`,
-  `classificationConfig`, `welcomeMarkdown`, `closingMarkdown`, `stageEscalation`,
-  `openEnrollment`. All are written by `setAuthUser()`, called from `hydrateAuth()`
+  `adminUserId`, `adminName`, `age`, `instructorLabel`; and the educator's own settings
+  `feedbackConfig`, `classificationConfig`, `welcomeMarkdown`, `closingMarkdown`,
+  `stageEscalation`, `openEnrollment`. All are written by `setAuthUser()`, called from `hydrateAuth()`
   (`GET /api/auth/me`) and from the login/signup responses.
 - **Version**: 5 — with a `migrate()` that rewrites any older snapshot down to the three
   persisted keys. Dropping a key from `partialize` is not enough on its own: Zustand
@@ -127,6 +127,9 @@ auth identity or the learner's class binding — both must come from the session
 - `feedbackConfig`, `classificationConfig`, `stageEscalation` (TEXT, json mode): Educator's
   prompt and stage-progression overrides (NULL = system defaults)
 - `welcomeMarkdown`, `closingMarkdown` (TEXT): Educator-authored Welcome / Closing content
+- `instructorLabel` (TEXT): What learners call this educator — the feedback byline and the
+  chat header badge. NULL / blank = `DEFAULT_INSTRUCTOR_LABEL` ("Instructor"). Never the
+  educator's username: learners must not be able to tell one class from another
 - `createdAt` (INTEGER): Unix timestamp (milliseconds)
 - `lastLoginAt` (INTEGER): Unix timestamp (milliseconds), nullable
 - **Uniqueness — two partial indexes, one per namespace**:
@@ -178,6 +181,32 @@ auth identity or the learner's class binding — both must come from the session
 - `createdAt` (INTEGER): Unix timestamp (milliseconds)
 - **Unique constraint**: (userId, scenarioId)
 
+**archived_messages** / **archived_feedbacks** tables:
+- Copies of `user_messages` / `user_feedbacks` taken **inside the reset transaction**, just
+  before Restart / Reset all hard-deletes them. Before this, resetting destroyed the transcript
+  outright. Written once, never updated; cascade-deleted with the user or scenario.
+- `archivedAt` (INTEGER) is the moment of that reset and identifies the *run*: every row from
+  one reset shares it, so ordering the distinct values yields "attempt 1, 2, …" with no counter
+  to keep in sync. Feedback joins on (userId, scenarioId, archivedAt, messageId) — message ids
+  repeat across runs, so the run has to be part of the key.
+- Deliberately separate tables, not an `attempt` column on the live ones: the chat, the
+  safe-rate recompute and the roster counts all query `user_messages` unfiltered, and any query
+  that forgot the filter would silently mix a previous attempt into the current score.
+- Read only by `/api/educator/transcript` (educator-facing viewer). Not retroactive — runs
+  reset before this existed are gone.
+
+**reset_events** table:
+- `id` (TEXT): Primary key, UUID
+- `userId` (TEXT): References users(id) ON DELETE CASCADE
+- `scenarioId` (INTEGER): References scenarios(id) ON DELETE CASCADE. Set for a per-scenario
+  Restart; NULL for a module-wide Reset all (one click covering every scenario)
+- `kind` (TEXT): 'restart' | 'reset_all'
+- `createdAt` (INTEGER): Unix timestamp (milliseconds)
+- One row per *confirmed* action. This has to be its own table rather than a counter column
+  on `scenario_progress`: both actions DELETE that row, so the count would be erased by the
+  action it counts. Nothing in the reset paths touches this table. Surfaced per participant in
+  the admin roster's Details modal (`restartCount` per scenario + `resetAllCount` overall).
+
 ### AI Integration
 
 There is no model picker. Configuration lives in `lib/ai-models.ts`:
@@ -228,13 +257,21 @@ Server-side API routes for database operations (SQLite can only be accessed serv
    have no access-code row
 8. **`/api/get-admin-info`** - POST: the acting user's educator settings (an educator's own
    row, or the class a student is bound to). PATCH: update the signed-in educator's own row
-   (age, `openEnrollment`, prompt overrides, welcome/closing content, stage policy).
+   (age, `openEnrollment`, prompt overrides, welcome/closing content, stage policy,
+   `instructorLabel` — trimmed, capped at 40 chars, blank stored as NULL).
 9. **`/api/get-admin-scenarios`** - Scenarios belonging to the acting user's class
 10. **`/api/access-codes`** (GET/POST/DELETE) - The session educator's own access codes.
     `/api/access-codes/lookup?code=&educator=` is the public invite-link check, scoped to the
     educator named in the URL (`valid` | `used` | `invalid`).
 11. **`/api/delete-user`** - Delete the *session* user; cascades to their scenarios and, for
     an educator, to their students
+12. **`/api/reset-events`** - POST: log the session learner's confirmed Restart / Reset all
+    (`{ kind, scenarioId? }`); the actor comes from the session, never the body
+13. **`/api/educator/transcript?userId=&scenarioId=`** - One participant's conversation for one
+    scenario: the live run plus every archived run, with the feedback each reply received.
+    Doubly scoped — the participant must be a student of the session educator *and* the
+    scenario must be one that educator owns, or a `userId` in the query string would expose
+    another class's transcripts
 
 **Session-scoped**: routes 7–11 and `/api/feedback` resolve the acting user (and their
 educator) from the session cookie — `getSessionUserId()` plus `resolveEducatorIdForUser()`

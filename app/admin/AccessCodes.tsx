@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Trash2, Copy, Check, Link2, X, MessageSquare, Users } from "lucide-react";
+import { Plus, Trash2, Copy, Check, Link2, X, MessageSquare, MessagesSquare, Users } from "lucide-react";
 import { useScenarioStore } from "../store/useScenarioStore";
+import TranscriptModal from "./TranscriptModal";
 
 // Per-scenario progress summary for a participant (server-computed from scenario_progress —
 // see lib/progress/educator-progress.ts).
@@ -19,6 +20,7 @@ interface Progress {
   visitCount: number;
   lastVisitedAt: number | null;
   messageCount: number;
+  restartCount: number;
 }
 
 interface AccessCode {
@@ -30,6 +32,7 @@ interface AccessCode {
   usedAt: number | null;
   createdAt: number;
   progress: Progress[] | null;
+  resetAllCount: number;
 }
 
 interface Student {
@@ -40,13 +43,18 @@ interface Student {
   accessCode: string | null;
   participantLabel: string | null;
   progress: Progress[];
+  resetAllCount: number;
 }
 
 // What the details modal shows — either a student row or a redeemed code.
 interface Detail {
+  // The participant, for loading their per-scenario transcript.
+  userId: string;
   title: string;
   subtitle: string;
   progress: Progress[];
+  // Module-wide "Reset all" clicks; per-scenario Restart counts ride on each Progress entry.
+  resetAllCount: number;
 }
 
 const pct = (rate: number | null) => (rate === null ? null : Math.round(rate * 100));
@@ -67,6 +75,8 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  // The scenario whose transcript is open on top of the details modal, if any.
+  const [transcript, setTranscript] = useState<{ scenarioId: number } | null>(null);
   const [origin, setOrigin] = useState("");
 
   useEffect(() => setOrigin(window.location.origin), []);
@@ -229,9 +239,11 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
                       <button
                         onClick={() =>
                           setDetail({
+                            userId: s.id,
                             title: s.username,
                             subtitle: `joined ${fmtDate(s.createdAt)}${s.accessCode ? ` · code ${s.accessCode}` : " · class link"}`,
                             progress: s.progress,
+                            resetAllCount: s.resetAllCount,
                           })
                         }
                         className="inline-flex h-7 items-center rounded-md px-2 text-xs font-medium text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-700"
@@ -390,10 +402,12 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
                           </button>
                           <button
                             onClick={() =>
-                              used && c.progress && setDetail({
+                              used && c.progress && c.usedByUserId && setDetail({
+                                userId: c.usedByUserId,
                                 title: c.usedByUsername ?? "Participant",
                                 subtitle: `code ${c.code}${c.participantLabel ? ` · ${c.participantLabel}` : ""} · joined ${fmtDate(c.usedAt)}`,
                                 progress: c.progress,
+                                resetAllCount: c.resetAllCount,
                               })
                             }
                             disabled={!used}
@@ -422,7 +436,10 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
 
       {/* Participant detail modal */}
       {detail && (
-        <div className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-16" onClick={() => setDetail(null)}>
+        <div
+          className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 p-4 pt-16"
+          onClick={() => { setDetail(null); setTranscript(null); }}
+        >
           <div
             className="w-full max-w-2xl overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
@@ -433,7 +450,7 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
                 <p className="text-xs text-gray-500">{detail.subtitle}</p>
               </div>
               <button
-                onClick={() => setDetail(null)}
+                onClick={() => { setDetail(null); setTranscript(null); }}
                 className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
                 aria-label="Close"
               >
@@ -441,6 +458,20 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
               </button>
             </div>
             <div className="max-h-[65vh] overflow-y-auto px-6 py-4">
+              {/* Start-over stats. Restarts are per scenario and also broken out below; Reset
+                  all is one click covering the whole module, so it only lives here. */}
+              <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-1 rounded-lg bg-gray-50 px-4 py-3 text-xs">
+                <div>
+                  <dt className="inline text-gray-400">Restarts (all scenarios):</dt>{" "}
+                  <dd className="inline font-semibold text-gray-800">
+                    {detail.progress.reduce((n, p) => n + p.restartCount, 0)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="inline text-gray-400">Reset all:</dt>{" "}
+                  <dd className="inline font-semibold text-gray-800">{detail.resetAllCount}</dd>
+                </div>
+              </div>
               {detail.progress.length > 0 ? (
                 <div className="space-y-4">
                   {detail.progress.map((p) => {
@@ -450,6 +481,13 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
                       <div key={p.scenarioId} className="rounded-lg border border-gray-200 p-4">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <h4 className="text-sm font-semibold text-gray-900">{p.scenarioName}</h4>
+                          <button
+                            onClick={() => setTranscript({ scenarioId: p.scenarioId })}
+                            className="ml-auto inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-700"
+                          >
+                            <MessagesSquare className="h-3.5 w-3.5" />
+                            Transcript
+                          </button>
                           {p.masteryReachedAt ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
                               <Check className="w-3 h-3" /> Target reached
@@ -465,6 +503,7 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
                           <div><dt className="text-gray-400">Safe rate</dt><dd className="font-medium text-gray-800">{started ? `${rate ?? 0}%` : "—"}</dd></div>
                           <div><dt className="text-gray-400">Replies (P · N · V)</dt><dd className="font-medium text-gray-800">{p.protectiveCount} · {p.neutralCount} · {p.vulnerableCount}</dd></div>
                           <div><dt className="text-gray-400">Visits</dt><dd className="font-medium text-gray-800">{p.visitCount}</dd></div>
+                          <div><dt className="text-gray-400">Restarts</dt><dd className="font-medium text-gray-800">{p.restartCount}</dd></div>
                           <div><dt className="text-gray-400">Target reached</dt><dd className="font-medium text-gray-800">{fmtDate(p.masteryReachedAt)}</dd></div>
                           <div><dt className="text-gray-400">Finished</dt><dd className="font-medium text-gray-800">{fmtDate(p.completedAt)}</dd></div>
                           <div><dt className="text-gray-400">Comfort exit</dt><dd className="font-medium text-gray-800">{fmtDate(p.comfortExitAt)}</dd></div>
@@ -480,6 +519,16 @@ export default function AccessCodes({ educatorUsername }: { educatorUsername: st
             </div>
           </div>
         </div>
+      )}
+
+      {/* Transcript sits above the details modal, which stays open behind it. */}
+      {detail && transcript && (
+        <TranscriptModal
+          userId={detail.userId}
+          scenarioId={transcript.scenarioId}
+          participant={detail.title}
+          onClose={() => setTranscript(null)}
+        />
       )}
     </div>
   );

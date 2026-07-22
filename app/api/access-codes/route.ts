@@ -3,7 +3,7 @@ import { db } from '@/lib/db/client';
 import { accessCodes, users } from '@/lib/db/schema';
 import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { getSessionUserId } from '@/lib/auth/session';
-import { buildProgressByUser, type ParticipantProgress } from '@/lib/progress/educator-progress';
+import { buildProgressByUser, countResetAllByUser, type ParticipantProgress } from '@/lib/progress/educator-progress';
 
 // Educator-issued participant access codes (Evaluation Plan §6, L101–102). A code binds one
 // participant to this educator's class and is consumed at signup. Codes are optional unless
@@ -53,6 +53,7 @@ export async function GET() {
     const usernameById = new Map(userRows.map((u) => [u.id, u.username]));
 
     const progressByUser = await buildProgressByUser(educatorId, usedUserIds);
+    const resetAllByUser = await countResetAllByUser(usedUserIds);
 
     const enriched = codes.map((c) => ({
       ...c,
@@ -60,6 +61,7 @@ export async function GET() {
       progress: c.usedByUserId
         ? ((progressByUser.get(c.usedByUserId) ?? []) as ParticipantProgress[])
         : null,
+      resetAllCount: c.usedByUserId ? (resetAllByUser.get(c.usedByUserId) ?? 0) : 0,
     }));
 
     return NextResponse.json({ codes: enriched });

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, MessageSquare, Download, Upload, LogOut, Check, RotateCcw, Loader2, AlertCircle } from "lucide-react";
-import { useScenarioStore, type Scenario, type Message, GROOMING_STAGES } from "../store/useScenarioStore";
+import { useScenarioStore, type Scenario, type Message, GROOMING_STAGES, DEFAULT_INSTRUCTOR_LABEL } from "../store/useScenarioStore";
 import Button from "@/components/Button";
 import PromptEditor, {
   type FeedbackEdit,
@@ -60,6 +60,7 @@ export default function AdminPage() {
     classificationConfig,
     welcomeMarkdown,
     closingMarkdown,
+    instructorLabel,
     stageEscalation,
     isAdmin,
     isAuthenticated,
@@ -74,6 +75,7 @@ export default function AdminPage() {
     saveAdminPrompts,
     saveWelcomeMarkdown,
     saveClosingMarkdown,
+    saveInstructorLabel,
     saveStageEscalation,
     deleteAccount
   } = useScenarioStore();
@@ -93,6 +95,8 @@ export default function AdminPage() {
   const [editWelcome, setEditWelcome] = useState<string>('');
   const [showWelcomePreview, setShowWelcomePreview] = useState(false);
   const [editClosing, setEditClosing] = useState<string>('');
+  // Blank = no override, i.e. learners see DEFAULT_INSTRUCTOR_LABEL.
+  const [editInstructorLabel, setEditInstructorLabel] = useState<string>('');
   const [editEscalate, setEditEscalate] = useState<StageEscalationConfig>({});
   const [showClosingPreview, setShowClosingPreview] = useState(false);
   const [splashPreview, setSplashPreview] = useState<Record<number, boolean>>({});
@@ -113,8 +117,8 @@ export default function AdminPage() {
   const savingRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const initedRef = useRef(false);
-  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editEscalate });
-  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editEscalate };
+  const latestRef = useRef({ editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editInstructorLabel, editEscalate });
+  latestRef.current = { editingScenarios, editingAge, editFeedback, editClassification, editWelcome, editClosing, editInstructorLabel, editEscalate };
 
   // Backfill newer per-scenario fields so older persisted/imported scenarios keep every input
   // controlled (no undefined -> defined warning). Shared by the sync effect and Add.
@@ -155,6 +159,7 @@ export default function AdminPage() {
       );
       await saveWelcomeMarkdown(snap.editWelcome);
       await saveClosingMarkdown(snap.editClosing);
+      await saveInstructorLabel(snap.editInstructorLabel);
       await saveStageEscalation(snap.editEscalate);
 
       const storeIds = new Set(useScenarioStore.getState().scenarios.map((s) => s.id));
@@ -200,6 +205,7 @@ export default function AdminPage() {
     setEditClassification(toClassificationEdit(st.classificationConfig));
     setEditWelcome(st.welcomeMarkdown ?? '');
     setEditClosing(st.closingMarkdown ?? '');
+    setEditInstructorLabel(st.instructorLabel ?? '');
     setEditEscalate(st.stageEscalation ?? {});
     initedRef.current = true;
   };
@@ -213,7 +219,7 @@ export default function AdminPage() {
     if (dirtyRef.current || savingRef.current) return;
     hydrateBuffersFromStore();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation]);
+  }, [scenarios, age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, instructorLabel, stageEscalation]);
 
   // Warn before leaving with an unsaved/in-flight edit (auto-save is debounced, so a fast
   // tab-close could otherwise drop the last change).
@@ -415,6 +421,7 @@ export default function AdminPage() {
       classificationConfig?: ReturnType<typeof fromClassificationEdit>;
       welcome?: string;
       closing?: string;
+      instructorLabel?: string;
       escalate?: StageEscalationConfig;
     }
   ) => {
@@ -436,6 +443,7 @@ export default function AdminPage() {
       }
       if (globals.welcome !== undefined) await saveWelcomeMarkdown(globals.welcome);
       if (globals.closing !== undefined) await saveClosingMarkdown(globals.closing);
+      if (globals.instructorLabel !== undefined) await saveInstructorLabel(globals.instructorLabel);
       if (globals.escalate !== undefined) await saveStageEscalation(globals.escalate);
 
       // Reconcile scenarios: update where the file's id matches an existing one (preserving
@@ -479,6 +487,7 @@ export default function AdminPage() {
       classificationConfig: fromClassificationEdit(editClassification),
       welcomeMarkdown: editWelcome,
       closingMarkdown: editClosing,
+      instructorLabel: editInstructorLabel,
       stageEscalation: editEscalate,
       scenarios: editingScenarios,
     };
@@ -537,6 +546,7 @@ export default function AdminPage() {
           classificationConfig?: ReturnType<typeof fromClassificationEdit>;
           welcome?: string;
           closing?: string;
+          instructorLabel?: string;
           escalate?: StageEscalationConfig;
         } = {};
         if (!Array.isArray(imported)) {
@@ -554,6 +564,9 @@ export default function AdminPage() {
           }
           if ('closingMarkdown' in imported) {
             globals.closing = typeof imported.closingMarkdown === 'string' ? imported.closingMarkdown : '';
+          }
+          if ('instructorLabel' in imported) {
+            globals.instructorLabel = typeof imported.instructorLabel === 'string' ? imported.instructorLabel : '';
           }
           if ('stageEscalation' in imported) {
             globals.escalate = (imported.stageEscalation ?? {}) as StageEscalationConfig;
@@ -790,6 +803,24 @@ export default function AdminPage() {
         {/* Scenario Settings tab */}
         {activeTab === 'scenarios' && (
         <div>
+          {/* Instructor name (educator-wide): what learners call you in chat. Never your
+              username — learners must not be able to tell one class from another. */}
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h3 className="text-xl font-semibold">Instructor name</h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Shown to learners as the author of feedback and in the chat header. Leave empty
+              to use &quot;{DEFAULT_INSTRUCTOR_LABEL}&quot;. Your username is never shown.
+            </p>
+            <input
+              type="text"
+              value={editInstructorLabel}
+              onChange={(e) => { setEditInstructorLabel(e.target.value); scheduleSave(); }}
+              maxLength={40}
+              placeholder={DEFAULT_INSTRUCTOR_LABEL}
+              className="mt-3 w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+            />
+          </div>
+
           {/* Welcome screen (educator-wide, shown before the first scenario) */}
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-start justify-between gap-3 mb-2">

@@ -4,13 +4,14 @@ import { useState, useRef, useEffect, useLayoutEffect, useCallback, Fragment } f
 import { LogOut, Send, ChevronLeft, ChevronRight, RotateCcw, RotateCw, Settings, Eye, Check, Lock, Info, DoorOpen, Flag } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate } from "../../store/useScenarioStore";
+import { useScenarioStore, type Message, type ScenarioProgress, type ResponseLabel, type ResponseType, type ProgressUpdate, type Scenario, GROOMING_STAGES, computeSafeRate, instructorLabelOrDefault } from "../../store/useScenarioStore";
 import MessageBubble from "../MessageBubble";
 import Avatar from "../Avatar";
 import TypingIndicator from "../TypingIndicator";
 import FeedbackComment from "../FeedbackComment";
 import CongratsModal from "../CongratsModal";
 import SplashModal from "../SplashModal";
+import ComfortExitOverlay from "../ComfortExitOverlay";
 import Button from "@/components/Button";
 
 interface PreviewFeedback {
@@ -19,10 +20,9 @@ interface PreviewFeedback {
   responseType?: ResponseType;
 }
 
-// Learners never see which educator's class they are in: every class shows the same generic
-// byline on feedback instead of the educator's username. Educators previewing their own
-// scenarios see it too, so the preview matches what their students get.
-const INSTRUCTOR_LABEL = "Instructor";
+// Learners never see which educator's class they are in: the byline on feedback is a label the
+// educator chooses (default "Instructor"), never their username. Educators previewing their own
+// scenarios see the same label, so the preview matches what their students get.
 
 // The Safe Response Rate denominator floor for a scenario. Gated scenarios use the mastery
 // gate's minResponses; an ungated assessment uses its own length (maxMessages participant
@@ -107,6 +107,7 @@ export default function ChatPage() {
     userId,
     adminUserId,
     adminName,
+    instructorLabel,
     hydrateAuth,
     loadUserScenarios,
     saveUserMessage,
@@ -117,6 +118,7 @@ export default function ChatPage() {
     loadUserFeedbacks,
     recordScenarioVisit,
     recordScenarioLifecycle,
+    recordResetEvent,
     loadScenarioProgress,
     resetScenarioProgress,
     markSplashSeen,
@@ -166,6 +168,13 @@ export default function ChatPage() {
   // first reached, and the "ended" banner after the learner ends the chat / exits.
   const [showCongrats, setShowCongrats] = useState(false);
   const [endedReason, setEndedReason] = useState<'completed' | 'comfort_exit' | null>(null);
+  // Has the learner dismissed the full-screen comfort-exit overlay? Dismissing only hides the
+  // overlay so they can look back over the conversation — the scenario stays closed.
+  const [exitOverlayDismissed, setExitOverlayDismissed] = useState(false);
+  // True only for the exit the learner just clicked, false when the overlay is re-shown from a
+  // stored exit. Gates the undo link: a mis-click is recoverable right away, but coming back
+  // later must not reopen a conversation the learner deliberately left.
+  const [exitUndoable, setExitUndoable] = useState(false);
   // Scenario splash modal (§6): auto-shown on first entry, re-openable from the header ⓘ.
   const [showSplash, setShowSplash] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -185,10 +194,10 @@ export default function ChatPage() {
   const scenario = scenarios[currentScenario];
   const isBusy = isTyping || pendingFeedbackId !== null || previewPending;
 
-  // The feedback "author" shown on comment cards. Deliberately anonymous — see
-  // INSTRUCTOR_LABEL. The avatar seed stays per-class so the face is stable within a class,
-  // but it is an opaque id, not a name.
-  const teacherName = INSTRUCTOR_LABEL;
+  // The feedback "author" shown on comment cards: the educator's chosen label, never their
+  // username. The avatar seed stays per-class so the face is stable within a class, but it is
+  // an opaque id, not a name.
+  const teacherName = instructorLabelOrDefault(instructorLabel);
   const teacherSeed = (isAdmin ? userId : adminUserId) || 'rylai-teacher';
 
   // Recompute comment card positions: align each card with its anchor message
@@ -308,6 +317,16 @@ export default function ChatPage() {
       if (stale()) return;
       setScenarioProgressMap(progressMap);
 
+      // A comfort exit is final for that scenario, so restore it from the persisted stamp
+      // (§6, L216). Without this, leaving for another scenario and coming back handed the
+      // learner a live input box again, since `endedReason` is component state that
+      // navigation resets. Restart/Reset delete the progress row, which is what reopens it.
+      const comfortExited = !!progressMap.get(sc.id)?.comfortExitAt;
+      setExitOverlayDismissed(false);
+      setExitUndoable(false);
+
+      // The conversation as actually rendered — what the ended-state checks below count.
+      let displayed: Message[] = [];
       const ownMessages = await loadUserMessages(sc.id);
       const ownFeedbacks = await loadUserFeedbacks(sc.id);
       // A newer run superseded this one (e.g. Restart reloaded scenarios) — bail before
@@ -348,10 +367,12 @@ export default function ChatPage() {
         setMessages(combined);
         setFeedbackByMessageId(fbMap);
         restoreStage(combined);
+        displayed = combined;
       } else if (ownMessages.length > 0) {
         setMessages(ownMessages);
         setFeedbackByMessageId(ownFeedbacks);
         restoreStage(ownMessages);
+        displayed = ownMessages;
       } else {
         setFeedbackByMessageId(new Map());
         // First time: seed preset messages with stable ids (per scenario + index). Stable
@@ -361,6 +382,7 @@ export default function ChatPage() {
           id: `${sc.id}-preset-${index}-${msg.id}`
         }));
         setMessages(presetMessages);
+        displayed = presetMessages;
 
         // Save preset messages to DB
         for (const msg of presetMessages) {
@@ -371,6 +393,19 @@ export default function ChatPage() {
           }
         }
       }
+
+      // Restore the "ended" state for this scenario. A comfort exit wins over a finished
+      // assessment — it's the reason the learner actually left. For a 6.1b assessment the cap
+      // is re-derived with the same rule the live check uses when the last reply lands (count
+      // the participant's own replies in the displayed conversation, §6 L223–225), so
+      // re-entering can't hand back one extra turn. `completedAt` is deliberately NOT used
+      // here: it is also stamped by merely advancing to the next scenario, which would wrongly
+      // close every scenario the learner has moved past.
+      const capReached =
+        sc.assessmentMode &&
+        sc.maxMessages > 0 &&
+        displayed.filter((m) => m.sender === 'user').length >= sc.maxMessages;
+      setEndedReason(comfortExited ? 'comfort_exit' : capReached ? 'completed' : null);
     };
 
     loadMessages();
@@ -746,10 +781,30 @@ export default function ChatPage() {
 
   // Voluntary safe exit, available at any time (§6, L216). Ends the conversation
   // immediately — no confirm dialog (team decision); Reset lets the learner start over.
-  const handleComfortExit = () => {
+  const handleComfortExit = async () => {
     setShowCongrats(false);
     setEndedReason('comfort_exit');
-    if (userType === 'user') recordScenarioLifecycle(scenario.id, 'comfort_exit');
+    setExitOverlayDismissed(false);
+    setExitUndoable(true);
+    // Awaited: the exit is what a later re-entry reads back to keep the scenario closed, so
+    // it must land before the learner can navigate away.
+    if (userType === 'user') await recordScenarioLifecycle(scenario.id, 'comfort_exit');
+  };
+
+  // Comfort exit → wrap up now, skipping any scenarios the learner hasn't reached. No mastery
+  // gate and no 'completed' stamp: they are leaving because they felt uncomfortable, not
+  // because they finished. The overlay spells out what gets skipped before this runs.
+  const handleExitToClosing = () => {
+    router.push('/complete');
+  };
+
+  // "I clicked this by mistake" — offered only on the overlay for the exit just made. Clears
+  // the stamp and reopens the input, leaving the conversation and feedback intact (Restart,
+  // the other way back, wipes them).
+  const handleUndoComfortExit = async () => {
+    setEndedReason(null);
+    setExitUndoable(false);
+    if (userType === 'user') await recordScenarioLifecycle(scenario.id, 'comfort_exit_undo');
   };
 
   const handlePreviousScenario = () => {
@@ -809,9 +864,9 @@ export default function ChatPage() {
     const scenarioName = scenarios[currentScenario].name;
     if (!confirm(
       `Restart "${scenarioName}"?\n\n` +
-      `This starts the conversation over from the beginning (with your teacher's ` +
-      `latest version of the scenario). Your messages and feedback for this ` +
-      `scenario will be cleared.`
+      `This starts the conversation over from the beginning; all the messages and ` +
+      `feedback within this scenario are cleared but other scenarios remain untouched. ` +
+      `Use "Reset all" to restart the whole module.`
     )) {
       return;
     }
@@ -819,6 +874,11 @@ export default function ChatPage() {
     setIsRefreshing(true);
     try {
       const scenarioId = scenarios[currentScenario].id;
+
+      // Log the restart before wiping: the reset deletes this scenario's progress row, so the
+      // count has to live outside it (reset_events). Learners only — an educator testing their
+      // own scenarios isn't a participant.
+      if (userType === 'user') await recordResetEvent('restart', scenarioId);
 
       // Clear this scenario's saved conversation/progress in the DB for learners,
       // then forget the chat session so the predator starts fresh.
@@ -871,6 +931,10 @@ export default function ChatPage() {
 
     setIsResetting(true);
     try {
+      // One event for the click, not one per scenario — see recordResetEvent. Logged before
+      // the wipe, which deletes every progress row. Learners only.
+      if (userType === 'user') await recordResetEvent('reset_all');
+
       // Wipe each scenario's saved data (learners) and forget its chat session.
       for (const sc of scenarios) {
         if (userId) {
@@ -957,9 +1021,9 @@ export default function ChatPage() {
               </Link>
             ) : (
               /* Learners are bound to one educator (dedicated-URL flow) — no picker, and no
-                 name either: the badge is the same in every class. */
+                 username either: the badge shows the class's chosen label. */
               <span className="hidden items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-500 sm:inline-flex">
-                <span className="font-semibold text-gray-700">{INSTRUCTOR_LABEL}</span>
+                <span className="font-semibold text-gray-700">{teacherName}</span>
               </span>
             )}
             <div className="relative group">
@@ -1031,10 +1095,10 @@ export default function ChatPage() {
                     </button>
                     <div className="absolute top-full right-0 z-50 mt-2 hidden w-64 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
                       <div className="font-semibold mb-1">Restart this scenario only</div>
-                      Starts <span className="font-semibold">this</span> conversation over from the
-                      beginning (with your teacher&apos;s latest version); its messages and feedback are
-                      cleared. Other scenarios are untouched — use <span className="font-semibold">Reset all</span> for
-                      the whole module.
+                      Start this conversation over from the beginning; all the messages and
+                      feedback within this scenario are cleared but other scenarios remain
+                      untouched. Use <span className="font-semibold">Reset all</span> to restart the
+                      whole module.
                     </div>
                   </div>
                 </div>
@@ -1210,6 +1274,26 @@ export default function ChatPage() {
                   )}
                 </div>
               </div>
+
+              {/* Safe exit (§6 L216): directly under the input, centered — that's where the
+                  learner is looking when a message lands and discomfort actually starts. Ends
+                  the conversation immediately, no confirm. The L118 withdraw notice stays in
+                  the hover tooltip. */}
+              <div className="mt-2 flex justify-center">
+                <div className="group relative">
+                  <button
+                    onClick={handleComfortExit}
+                    className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 underline-offset-4 transition-colors hover:text-rose-700 hover:underline"
+                  >
+                    <DoorOpen className="w-3.5 h-3.5" />
+                    I don&apos;t feel comfortable anymore.
+                  </button>
+                  <div className="absolute bottom-full left-1/2 z-50 mb-2 hidden w-72 -translate-x-1/2 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
+                    If any part of this conversation makes you feel uncomfortable or unsafe, you can
+                    leave at any time without penalty. Clicking this ends the conversation immediately.
+                  </div>
+                </div>
+              </div>
               </>
               )}
             </div>
@@ -1273,7 +1357,7 @@ export default function ChatPage() {
         </div>
       </main>
 
-      {/* Bottom bar: navigation + always-visible safe exit (pinned to the screen's right corner) */}
+      {/* Bottom bar: scenario navigation. (The safe exit lives under the chat input.) */}
       <footer className="relative flex-shrink-0 border-t border-gray-200 bg-white px-6 py-3">
         <div className="mx-auto w-full max-w-4xl">
           <div className="flex items-center justify-center gap-10">
@@ -1354,23 +1438,6 @@ export default function ChatPage() {
           </div>
         </div>
 
-        {/* Safe exit (§6 L216): leaves the conversation immediately, no confirm.
-            The L118 withdraw notice appears in a hover tooltip. */}
-        {!endedReason && (
-          <div className="group absolute right-6 top-1/2 -translate-y-1/2">
-            <button
-              onClick={handleComfortExit}
-              className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50/70 px-3.5 py-2 text-sm font-medium text-rose-600 transition-colors hover:bg-rose-100"
-            >
-              <DoorOpen className="w-4 h-4" />
-              I don&apos;t feel comfortable anymore.
-            </button>
-            <div className="absolute bottom-full right-0 z-50 mb-2 hidden w-72 rounded-lg bg-gray-900 p-3 text-xs font-normal leading-snug text-white shadow-xl group-hover:block">
-              If any part of this conversation makes you feel uncomfortable or unsafe, you can
-              leave at any time without penalty. Clicking this ends the conversation immediately.
-            </div>
-          </div>
-        )}
       </footer>
 
         {showSplash && scenario.splashMarkdown && scenario.splashMarkdown.trim() && (
@@ -1387,6 +1454,15 @@ export default function ChatPage() {
             onContinue={() => setShowCongrats(false)}
             onNext={handleNextScenario}
             onEnd={handleFinish}
+          />
+        )}
+
+        {endedReason === 'comfort_exit' && !exitOverlayDismissed && (
+          <ComfortExitOverlay
+            onFinish={handleExitToClosing}
+            onDismiss={() => setExitOverlayDismissed(true)}
+            remainingCount={Math.max(0, scenarios.length - 1 - currentScenario)}
+            onUndo={exitUndoable ? handleUndoComfortExit : undefined}
           />
         )}
     </div>

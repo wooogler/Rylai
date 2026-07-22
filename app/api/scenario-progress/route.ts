@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db/client';
-import { scenarioProgress, userMessages, userFeedbacks } from '@/lib/db/schema';
+import {
+  scenarioProgress,
+  userMessages,
+  userFeedbacks,
+  archivedMessages,
+  archivedFeedbacks,
+} from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 
 // GET - Load scenario progress for user
@@ -92,12 +98,15 @@ export async function POST(request: NextRequest) {
 // PATCH - Record a lifecycle event for a scenario: 'completed' (finished — advanced to the
 // next scenario, ended the final chat, or the assessment reached its reply limit) or
 // 'comfort_exit' ("I don't feel comfortable anymore."). Timestamps are sticky (first only).
+// 'comfort_exit_undo' is the one exception: it clears comfort_exit_at so a mis-click can be
+// taken back without destroying the conversation (Restart, the other way out, wipes it).
 export async function PATCH(request: NextRequest) {
   try {
     const body = await request.json();
     const { userId, scenarioId, kind } = body;
 
-    if (!userId || !scenarioId || (kind !== 'completed' && kind !== 'comfort_exit')) {
+    const KINDS = ['completed', 'comfort_exit', 'comfort_exit_undo'];
+    if (!userId || !scenarioId || !KINDS.includes(kind)) {
       return NextResponse.json({ error: 'Missing or invalid fields' }, { status: 400 });
     }
 
@@ -109,6 +118,16 @@ export async function PATCH(request: NextRequest) {
         eq(scenarioProgress.scenarioId, scenarioId)
       )
     });
+
+    // Undo only ever clears an existing stamp — never creates a row.
+    if (kind === 'comfort_exit_undo') {
+      if (existing?.comfortExitAt) {
+        await db.update(scenarioProgress)
+          .set({ comfortExitAt: null })
+          .where(eq(scenarioProgress.id, existing.id));
+      }
+      return NextResponse.json({ success: true });
+    }
 
     if (existing) {
       // Sticky: keep the first time each event happened.
@@ -154,6 +173,57 @@ export async function DELETE(request: NextRequest) {
 
     // Use transaction to delete all related data
     db.transaction((tx) => {
+      // Preserve the conversation before it goes. Same transaction as the delete, so the
+      // transcript is either fully archived or the reset doesn't happen at all — an educator
+      // must never see a half-copied run. `archivedAt` is shared by every row of this reset
+      // and identifies the run (see archivedMessages in schema.ts).
+      const archivedAt = new Date();
+      const msgs = tx
+        .select()
+        .from(userMessages)
+        .where(and(eq(userMessages.userId, userId), eq(userMessages.scenarioId, scenarioIdInt)))
+        .all();
+      if (msgs.length > 0) {
+        tx.insert(archivedMessages)
+          .values(
+            msgs.map((m) => ({
+              userId: m.userId,
+              scenarioId: m.scenarioId,
+              archivedAt,
+              messageId: m.messageId,
+              text: m.text,
+              sender: m.sender,
+              stage: m.stage,
+              classification: m.classification,
+              responseType: m.responseType,
+              tacticRecognized: m.tacticRecognized,
+              protectiveStrategy: m.protectiveStrategy,
+              rationale: m.rationale,
+              timestamp: m.timestamp,
+            }))
+          )
+          .run();
+
+        const fbs = tx
+          .select()
+          .from(userFeedbacks)
+          .where(and(eq(userFeedbacks.userId, userId), eq(userFeedbacks.scenarioId, scenarioIdInt)))
+          .all();
+        if (fbs.length > 0) {
+          tx.insert(archivedFeedbacks)
+            .values(
+              fbs.map((f) => ({
+                userId: f.userId,
+                scenarioId: f.scenarioId,
+                archivedAt,
+                messageId: f.messageId,
+                feedbackText: f.feedbackText,
+              }))
+            )
+            .run();
+        }
+      }
+
       tx.delete(scenarioProgress).where(
         and(
           eq(scenarioProgress.userId, userId),

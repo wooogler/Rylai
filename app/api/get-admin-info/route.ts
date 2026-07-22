@@ -31,6 +31,7 @@ export async function POST() {
         closingMarkdown: true,
         stageEscalation: true,
         openEnrollment: true,
+        instructorLabel: true,
       },
     });
 
@@ -49,6 +50,18 @@ export async function POST() {
       { status: 500 }
     );
   }
+}
+
+// The learner-facing name for the educator. Trimmed, length-capped (it sits in a chat header
+// badge and a feedback byline), and normalized to null when blank so the client falls back to
+// the built-in default rather than rendering an empty byline.
+const INSTRUCTOR_LABEL_MAX = 40;
+function sanitizeInstructorLabel(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined; // not provided → leave column unchanged
+  if (value === null) return null;
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, INSTRUCTOR_LABEL_MAX) : null;
 }
 
 // A config value is either an object (overrides) or null (use system defaults).
@@ -78,13 +91,15 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'Educator account required' }, { status: 403 });
     }
 
-    const { age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation, openEnrollment } = await req.json();
+    const { age, feedbackConfig, classificationConfig, welcomeMarkdown, closingMarkdown, stageEscalation, openEnrollment, instructorLabel } = await req.json();
 
     const updates: Partial<typeof users.$inferInsert> = {};
     if (age !== undefined) updates.age = age;
     if (welcomeMarkdown !== undefined) updates.welcomeMarkdown = welcomeMarkdown;
     if (closingMarkdown !== undefined) updates.closingMarkdown = closingMarkdown;
     if (typeof openEnrollment === 'boolean') updates.openEnrollment = openEnrollment;
+    const label = sanitizeInstructorLabel(instructorLabel);
+    if (label !== undefined) updates.instructorLabel = label;
     const se = sanitizeConfig<StageEscalationConfig>(stageEscalation);
     if (se !== undefined) updates.stageEscalation = se;
 
